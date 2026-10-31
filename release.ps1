@@ -79,8 +79,13 @@ $notesFile = Join-Path $target 'jr\release-notes.md'
 [IO.File]::WriteAllText($notesFile, $notes + "`n")
 $assets = (Get-ChildItem $all -File | Where-Object Name -ne 'ccacc.update.json').FullName
 $flags = if ($pre) { @('--prerelease') } else { @('--latest=true') }
-& $gh release create $tag @assets --repo $repo --title "ccacc $version" --notes-file $notesFile --target (Sha HEAD) @flags
-if ($LASTEXITCODE) { throw 'gh release create failed' }
+# gitgate's gh prints its ACCOUNT notice on stderr; with ErrorActionPreference Stop PowerShell turns that into a terminating error
+# before gh has run (2026-10-31, this script and the known cfucli release.ps1 failure). So stderr is shown, not fatal, and the exit code decides.
+$prev = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+& $gh release create $tag @assets --repo $repo --title "ccacc $version" --notes-file $notesFile --target (Sha HEAD) @flags 2>&1 | ForEach-Object { "$_" } | Write-Host
+$code = $LASTEXITCODE
+$ErrorActionPreference = $prev
+if ($code) { throw "gh release create failed ($code)" }
 
 # Every asset URL must answer 200 BEFORE the site goes live.
 foreach ($a in (Get-ChildItem $all -File | Where-Object Name -ne 'ccacc.update.json')) {
