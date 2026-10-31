@@ -32,7 +32,10 @@ function Sha([string]$ref) { @(git rev-parse $ref) | Where-Object { $_ -match '^
 if (-not $DryRun) {
     $dirty = @(git status --porcelain) | Where-Object { $_ -match '^[ MADRCU?!]{2} ' }
     if ($dirty) { throw "the working tree is not clean - commit first:`n$($dirty -join "`n")" }
-    git fetch -q origin
+    # ssh may print a goodbye line on stderr; that is not an error (same cause as the gh call below)
+    $prev = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+    git fetch -q origin 2>&1 | Out-Null
+    $ErrorActionPreference = $prev
     if ((Sha HEAD) -ne (Sha '@{u}')) { throw 'HEAD is not pushed - push first' }
     if (-not (Test-Path (Join-Path $site '.git'))) { throw "no site working copy at $site" }
 }
