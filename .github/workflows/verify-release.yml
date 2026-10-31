@@ -1,7 +1,7 @@
 # Proves a published release on a real Mac: downloads the macOS binary the way the README says, with no Java 25 on the machine,
 # plants an invented Claude Code login in the real Keychain and checks that the command line reads it, saves it and switches
 # (which writes the Keychain). It proves behaviour, not looks: the menu bar icon and the windows need a person at a Mac.
-# Run by hand:  gh workflow run verify-release.yml -f tag=v0.1.0-beta.1
+# Run by hand:  gh workflow run verify-release.yml -f tag=v0.1.0-beta.2
 name: verify-release
 on:
   workflow_dispatch:

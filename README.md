@@ -25,12 +25,12 @@ What it does:
 
 Windows, in cmd or PowerShell (`curl.exe` ships with Windows 10 and 11):
 
-    curl.exe -fLo ccacc.exe https://github.com/ccsuite/ccsuite/releases/download/v0.1.0-beta.1/ccacc.exe
+    curl.exe -fLo ccacc.exe https://github.com/ccsuite/ccsuite/releases/download/v0.1.0-beta.2/ccacc.exe
     .\ccacc.exe install --start-at-login
 
 macOS, in Terminal (one line; `uname -m` picks Apple silicon or Intel):
 
-    curl -fLo /tmp/ccacc https://github.com/ccsuite/ccsuite/releases/download/v0.1.0-beta.1/ccacc-macos-$(uname -m) && chmod +x /tmp/ccacc && /tmp/ccacc install --start-at-login
+    curl -fLo /tmp/ccacc https://github.com/ccsuite/ccsuite/releases/download/v0.1.0-beta.2/ccacc-macos-$(uname -m) && chmod +x /tmp/ccacc && /tmp/ccacc install --start-at-login
 
 On a Mac with no Java 25, ccacc asks once, in the terminal, whether to download a Java runtime (Eclipse Temurin, about 50 MB); answer y. The Mac binary is signed ad hoc, not by an Apple developer. Downloaded with `curl` it opens as it is; downloaded with a browser, macOS asks once (System Settings, Privacy & Security, Open Anyway). The first time ccacc reads Claude Code's login from the Keychain, macOS asks whether to allow it: choose Always Allow.
 
