@@ -32,7 +32,7 @@ macOS, in Terminal (one line; `uname -m` picks Apple silicon or Intel):
 
     curl -fLo /tmp/ccacc https://github.com/ccsuite/ccsuite/releases/download/v0.1.0-beta.1/ccacc-macos-$(uname -m) && chmod +x /tmp/ccacc && /tmp/ccacc install --start-at-login
 
-The Mac binary is signed ad hoc, not by an Apple developer. Downloaded with `curl` it opens as it is; downloaded with a browser, macOS asks once (System Settings, Privacy & Security, Open Anyway). The first time ccacc reads Claude Code's login from the Keychain, macOS asks whether to allow it: choose Always Allow.
+On a Mac with no Java 25, ccacc asks once, in the terminal, whether to download a Java runtime (Eclipse Temurin, about 50 MB); answer y. The Mac binary is signed ad hoc, not by an Apple developer. Downloaded with `curl` it opens as it is; downloaded with a browser, macOS asks once (System Settings, Privacy & Security, Open Anyway). The first time ccacc reads Claude Code's login from the Keychain, macOS asks whether to allow it: choose Always Allow.
 
 ccacc is a single file. On first run it fetches its jar from the release, checked against the checksum it carries, and a Java runtime if there is none. Later, `ccacc update` brings it to the newest release.
 

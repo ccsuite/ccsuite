@@ -25,7 +25,7 @@ jobs:
           chmod +x /tmp/ccacc
           shasum -a 256 /tmp/ccacc
       - name: The binary starts, fetches its jar and Java, and prints its help
-        run: /tmp/ccacc help | head -12
+        run: /tmp/ccacc -Xjr:yes help | head -12
       - name: Invented Claude Code state (two accounts, login in the Keychain)
         run: |
           mkdir -p "$HOME/.claude"
