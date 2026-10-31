@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <statusListener class="ch.qos.logback.core.status.NopStatusListener" />
+
+    <!-- Console: WARN+ only, to stderr, so stdout stays clean for CLI output -->
+    <appender name="CONSOLE" class="xyz.jphil.logback.TerseAppender">
+        <target>System.err</target>
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>WARN</level>
+        </filter>
+        <encoder class="xyz.jphil.logback.TerseEncoder">
+            <classNameWidth>15</classNameWidth>
+            <includeDate>false</includeDate>
+            <millisPrecision>1</millisPrecision>
+        </encoder>
+    </appender>
+
+    <!-- File: full INFO+ trail of registers/switches -->
+    <appender name="FILE" class="xyz.jphil.logback.TerseFileAppender">
+        <file>${user.home}/xyz-jphil/ccapis/logs/claudeswap.log</file>
+        <encoder class="xyz.jphil.logback.TerseFileEncoder">
+            <classNameWidth>20</classNameWidth>
+            <includeDate>true</includeDate>
+            <millisPrecision>3</millisPrecision>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+    </root>
+</configuration>

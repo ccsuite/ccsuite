@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+<?import javafx.scene.text.Text?>
+
+<BorderPane xmlns:fx="http://javafx.com/fxml"
+            fx:controller="ccsuite.chattracker.ui.MainController"
+            prefWidth="900" prefHeight="600">
+
+    <!-- Top Bar: Search + Account Filter + Sync -->
+    <top>
+        <VBox spacing="5">
+            <padding><Insets top="8" right="8" bottom="8" left="8"/></padding>
+            <HBox spacing="8" alignment="CENTER_LEFT">
+                <TextField fx:id="searchField" promptText="Search conversations..."
+                           HBox.hgrow="ALWAYS"/>
+                <ComboBox fx:id="accountFilter" promptText="All Accounts"
+                          prefWidth="200"/>
+                <Button fx:id="syncButton" text="Sync" onAction="#onSyncClicked"/>
+            </HBox>
+            <Label fx:id="statusLabel" text="Ready"
+                   style="-fx-text-fill: #666; -fx-font-size: 11;"/>
+        </VBox>
+    </top>
+
+    <!-- Center: SplitPane with list and detail -->
+    <center>
+        <SplitPane fx:id="splitPane" dividerPositions="0.35">
+            <!-- Left: Conversation Tree -->
+            <TreeView fx:id="conversationTree" showRoot="false"/>
+
+            <!-- Right: Detail Panel -->
+            <ScrollPane fx:id="detailScrollPane" fitToWidth="true">
+                <VBox fx:id="detailPanel" spacing="8" style="-fx-padding: 12;">
+                    <Label fx:id="detailTitle" text="Select a conversation"
+                           style="-fx-font-size: 16; -fx-font-weight: bold;"
+                           wrapText="true"/>
+                    <HBox spacing="12">
+                        <Label fx:id="detailAccount"
+                               style="-fx-text-fill: #555; -fx-font-size: 12;"/>
+                        <Label fx:id="detailModel"
+                               style="-fx-text-fill: #555; -fx-font-size: 12;"/>
+                    </HBox>
+                    <HBox spacing="12">
+                        <Label fx:id="detailCreated"
+                               style="-fx-text-fill: #888; -fx-font-size: 11;"/>
+                        <Label fx:id="detailUpdated"
+                               style="-fx-text-fill: #888; -fx-font-size: 11;"/>
+                    </HBox>
+                    <Hyperlink fx:id="detailLink" text=""
+                               style="-fx-font-size: 11;"/>
+                    <Separator/>
+                    <Label text="Summary" style="-fx-font-weight: bold;"/>
+                    <Text fx:id="detailSummary" wrappingWidth="400"
+                          style="-fx-font-size: 13;"/>
+                    <Label fx:id="detailStarred"
+                           style="-fx-text-fill: #c90; -fx-font-size: 12;"/>
+                    <Separator/>
+                    <Label text="Messages" style="-fx-font-weight: bold;"/>
+                    <VBox fx:id="messagesContainer" spacing="6"/>
+                </VBox>
+            </ScrollPane>
+        </SplitPane>
+    </center>
+</BorderPane>

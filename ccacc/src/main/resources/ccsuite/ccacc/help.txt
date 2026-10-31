@@ -1,0 +1,19 @@
+ccacc: Claude Code accounts (ccu, cswap and ccls in one)
+  ccacc                       resident app: tray menu, account watcher, usage widget, local proxy
+  ccacc app [--no-watch] [--no-widget] [--no-server]
+  ccacc tui                   usage view in the terminal
+  ccacc serve [--port N]      local proxy alone, no tray
+  ccacc install [--start-at-login]   put this exe in your programs folder and on the PATH
+  ccacc uninstall | update
+  ccacc migrate [--apply]     retire the old XML-based ccu, cswap and ccls (plan first, archive, never delete)
+  ccacc migrate --list | --restore <name>
+  ccacc ccu [--cli|--gui] [--verbose]       the old ccu, same options
+  ccacc cswap <command>                     the old cswap, same commands (also without the word cswap)
+  ccacc ccls [--port N] [--no-tray]         the old ccls, same options
+  ccacc mode auto|locked|paused    what the watcher may do on its own (changes the running app)
+  ccacc part watch|widget|server on|off    turn a part of the app on or off
+  ccacc account list|add|set|remove ...    the accounts: add, remove, per-account limit, monitor-only (ccacc account for the properties)
+  ccacc switch | register     change the running app, so it is the only writer
+  ccacc <command>             the account commands below
+
+After a switch, restart long-running Claude Code sessions. A session that started before the switch keeps its old login in memory and can save it back over the new one when it refreshes its token. ccacc checks whose tokens the live login really holds, and in locked mode it warns you when that happens.

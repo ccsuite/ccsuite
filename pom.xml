@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>io.github.ccsuite</groupId>
+    <artifactId>ccsuite</artifactId>
+    <version>1.0</version>
+    <packaging>pom</packaging>
+
+    <modules>
+        <module>base</module>
+        <module>tokencounter</module>
+        <module>webclient</module>
+        <module>ping</module>
+        <module>usagetracker</module>
+        <module>chatdownloader</module>
+        <module>oauthclient</module>
+        <module>accounts</module>
+        <module>oauthswap</module>
+        <module>localserver</module>
+        <module>ccacc</module>
+        <module>oauth</module>
+        <module>chattracker</module>
+    </modules>
+
+    <!-- The private proxy lives in its own private repository; when its folder sits here the reactor builds it too. -->
+    <profiles>
+        <profile>
+            <id>with-private</id>
+            <activation><file><exists>${basedir}/webproxy/pom.xml</exists></file></activation>
+            <modules><module>webproxy</module></modules>
+        </profile>
+    </profiles>
+</project>

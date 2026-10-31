@@ -1,0 +1,190 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.VBox?>
+<?import javafx.scene.shape.Rectangle?>
+<?import javafx.scene.text.Font?>
+
+<HBox maxHeight="-Infinity" maxWidth="-Infinity" minHeight="-Infinity" minWidth="-Infinity" spacing="1.0" style="-fx-background-color: #2A2A2A;" xmlns="http://javafx.com/javafx/25" xmlns:fx="http://javafx.com/fxml/1" fx:controller="ccsuite.usagetracker.ui.UsageWidgetController">
+   <children>
+      <VBox alignment="CENTER_LEFT">
+         <children>
+            <Label fx:id="accName" alignment="CENTER" maxHeight="-Infinity" minHeight="-Infinity" prefHeight="10.0" prefWidth="24.0" text="MMM" textFill="WHITE">
+               <font>
+                  <Font name="System Bold" size="8.0" />
+               </font>
+            </Label>
+            <HBox alignment="TOP_CENTER" fillHeight="false" maxHeight="-Infinity" minHeight="-Infinity" prefHeight="10.0" spacing="2.0">
+               <children>
+                  <Label fx:id="activeCheckbox" alignment="CENTER" maxHeight="-Infinity" text="✔" textAlignment="CENTER" textFill="WHITE">
+                     <font>
+                        <Font size="8.0" />
+                     </font>
+                  </Label>
+                  <Label fx:id="accType" alignment="CENTER" maxHeight="1.7976931348623157E308" maxWidth="1.7976931348623157E308" text="F" textAlignment="CENTER" textFill="YELLOW">
+                     <font>
+                        <Font name="System Bold" size="8.0" />
+                     </font>
+                  </Label>
+               </children>
+            </HBox>
+            <HBox alignment="TOP_CENTER" fillHeight="false" layoutX="10.0" layoutY="26.0" maxHeight="-Infinity" minHeight="-Infinity" prefHeight="10.0" spacing="2.0">
+               <children>
+                  <Label fx:id="pingButton" alignment="CENTER" maxWidth="1.7976931348623157E308" text="🔔" textAlignment="CENTER" textFill="WHITE">
+                     <font>
+                        <Font size="8.0" />
+                     </font>
+                  </Label>
+                  <Label fx:id="refreshButton" alignment="CENTER" maxHeight="1.7976931348623157E308" maxWidth="1.7976931348623157E308" text="🔄" textAlignment="CENTER" textFill="WHITE">
+                     <font>
+                        <Font size="8.0" />
+                     </font>
+                  </Label>
+               </children>
+            </HBox>
+         </children>
+         <HBox.margin>
+            <Insets />
+         </HBox.margin>
+      </VBox>
+      <VBox alignment="CENTER_LEFT" spacing="2.0">
+         <children>
+            <VBox fx:id="fiveHourVBox" spacing="2.0">
+               <children>
+                  <HBox fx:id="usageCompBox" maxHeight="-Infinity" prefHeight="6.0">
+                     <children>
+                        <Label fx:id="percentUsage" alignment="CENTER" contentDisplay="CENTER" maxHeight="-Infinity" maxWidth="-Infinity" prefWidth="21.0" text="25%" textAlignment="CENTER" textFill="#ffbb1f" HBox.hgrow="ALWAYS">
+                           <HBox.margin>
+                              <Insets bottom="-3.0" right="1.0" top="-3.0" />
+                           </HBox.margin>
+                           <font>
+                              <Font name="System Bold" size="8.0" />
+                           </font>
+                        </Label>
+                        <HBox alignment="CENTER_LEFT" maxHeight="-Infinity" maxWidth="-Infinity" prefHeight="6.0" prefWidth="36.0">
+                           <children>
+                              <Rectangle fx:id="usageProgress" fill="#ffbb1f" height="6.0" stroke="BLACK" strokeType="INSIDE" strokeWidth="0.0" width="8.75" />
+                           </children>
+                        </HBox>
+                        <Label fx:id="timeUsageRatioAsPercent" alignment="CENTER" contentDisplay="CENTER" maxHeight="-Infinity" maxWidth="-Infinity" prefWidth="24.0" text="50%" textAlignment="CENTER" textFill="#d97971" HBox.hgrow="ALWAYS">
+                           <font>
+                              <Font size="8.0" />
+                           </font>
+                           <HBox.margin>
+                              <Insets bottom="-3.0" top="-3.0" />
+                           </HBox.margin>
+                           <padding>
+                              <Insets left="1.0" right="1.0" />
+                           </padding>
+                        </Label>
+                     </children>
+                  </HBox>
+                  <HBox maxHeight="-Infinity" prefHeight="6.0">
+                     <children>
+                        <Label fx:id="percentTime" alignment="CENTER" contentDisplay="CENTER" maxHeight="-Infinity" maxWidth="-Infinity" prefWidth="21.0" text="50%" textAlignment="CENTER" textFill="#0abcff" HBox.hgrow="ALWAYS">
+                           <HBox.margin>
+                              <Insets bottom="-3.0" right="1.0" top="-3.0" />
+                           </HBox.margin>
+                           <font>
+                              <Font name="System Bold" size="8.0" />
+                           </font>
+                        </Label>
+                        <HBox alignment="CENTER_LEFT" maxHeight="-Infinity" maxWidth="-Infinity" prefHeight="6.0" prefWidth="36.0">
+                           <children>
+                              <Rectangle fx:id="timeProgress" fill="DODGERBLUE" height="6.0" stroke="BLACK" strokeType="INSIDE" strokeWidth="0.0" width="17.5" />
+                           </children>
+                        </HBox>
+                        <Label fx:id="cycleEndTime" alignment="CENTER" contentDisplay="CENTER" maxHeight="-Infinity" maxWidth="-Infinity" prefWidth="28.0" text="2h13m" textAlignment="CENTER" textFill="#21d6ff" HBox.hgrow="ALWAYS">
+                           <font>
+                              <Font size="8.0" />
+                           </font>
+                           <HBox.margin>
+                              <Insets bottom="-3.0" top="-3.0" />
+                           </HBox.margin>
+                           <padding>
+                              <Insets left="1.0" right="1.0" />
+                           </padding>
+                        </Label>
+                     </children>
+                  </HBox>
+               </children>
+               <VBox.margin>
+                  <Insets />
+               </VBox.margin>
+            </VBox>
+            <VBox fx:id="usageTimeRatioVBox" spacing="2.0">
+               <children>
+                  <!-- Weekly Limits Section: 7-Day All Models -->
+                  <HBox maxHeight="-Infinity" prefHeight="6.0">
+                     <children>
+                        <Label fx:id="percentWeeklyUsage" alignment="CENTER" contentDisplay="CENTER" maxHeight="-Infinity" maxWidth="-Infinity" prefWidth="21.0" text="100%" textAlignment="CENTER" textFill="#FFA500" HBox.hgrow="ALWAYS">
+                           <HBox.margin>
+                              <Insets bottom="-3.0" right="1.0" top="-3.0" />
+                           </HBox.margin>
+                           <font>
+                              <Font name="System Bold" size="8.0" />
+                           </font>
+                        </Label>
+                        <HBox alignment="CENTER_LEFT" maxHeight="-Infinity" maxWidth="-Infinity" prefHeight="6.0" prefWidth="36.0">
+                           <children>
+                              <Rectangle fx:id="weeklyUsageProgress" fill="#FFA500" height="6.0" stroke="BLACK" strokeType="INSIDE" strokeWidth="0.0" width="35.0" />
+                           </children>
+                        </HBox>
+                        <Label fx:id="weeklyUsageRatio" alignment="CENTER" contentDisplay="CENTER" maxHeight="-Infinity" maxWidth="-Infinity" prefWidth="25.0" text="100%" textAlignment="CENTER" textFill="#FFA500" HBox.hgrow="ALWAYS">
+                           <font>
+                              <Font name="System Bold" size="9.0" />
+                           </font>
+                           <HBox.margin>
+                              <Insets bottom="-3.0" top="-3.0" />
+                           </HBox.margin>
+                           <padding>
+                              <Insets left="1.0" right="1.0" />
+                           </padding>
+                        </Label>
+                     </children>
+                  </HBox>
+                  <HBox maxHeight="-Infinity" prefHeight="6.0">
+                     <children>
+                        <Label fx:id="percentWeeklyTime" alignment="CENTER" contentDisplay="CENTER" maxHeight="-Infinity" maxWidth="-Infinity" prefWidth="21.0" text="20%" textAlignment="CENTER" textFill="#87CEEB" HBox.hgrow="ALWAYS">
+                           <HBox.margin>
+                              <Insets bottom="-3.0" right="1.0" top="-3.0" />
+                           </HBox.margin>
+                           <font>
+                              <Font name="System Bold" size="8.0" />
+                           </font>
+                        </Label>
+                        <HBox alignment="CENTER_LEFT" maxHeight="-Infinity" maxWidth="-Infinity" prefHeight="6.0" prefWidth="36.0">
+                           <children>
+                              <Rectangle fx:id="weeklyTimeProgress" fill="#87CEEB" height="6.0" stroke="BLACK" strokeType="INSIDE" strokeWidth="0.0" width="35.0" />
+                           </children>
+                        </HBox>
+                        <Label fx:id="weeklyResetTime" alignment="CENTER" contentDisplay="CENTER" maxHeight="-Infinity" maxWidth="-Infinity" prefWidth="25.0" text="3d14h" textAlignment="CENTER" textFill="#87CEEB" HBox.hgrow="ALWAYS">
+                           <font>
+                              <Font size="8.0" />
+                           </font>
+                           <HBox.margin>
+                              <Insets bottom="-3.0" top="-3.0" />
+                           </HBox.margin>
+                           <padding>
+                              <Insets left="1.0" right="1.0" />
+                           </padding>
+                        </Label>
+                     </children>
+                  </HBox>
+               </children>
+               <VBox.margin>
+                  <Insets />
+               </VBox.margin>
+            </VBox>
+         </children>
+         <HBox.margin>
+            <Insets left="1.0" />
+         </HBox.margin>
+      </VBox>
+   </children>
+   <padding>
+      <Insets bottom="2.0" left="1.0" top="2.0" />
+   </padding>
+</HBox>
