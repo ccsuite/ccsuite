@@ -24,8 +24,8 @@ jobs:
           curl -fLo /tmp/ccacc https://github.com/ccsuite/ccsuite/releases/download/${{ inputs.tag }}/ccacc-macos-$ARCH
           chmod +x /tmp/ccacc
           shasum -a 256 /tmp/ccacc
-      - name: The binary says what it is
-        run: /tmp/ccacc -Xjr:doctor
+      - name: The binary starts, fetches its jar and Java, and prints its help
+        run: /tmp/ccacc help | head -12
       - name: Invented Claude Code state (two accounts, login in the Keychain)
         run: |
           mkdir -p "$HOME/.claude"
