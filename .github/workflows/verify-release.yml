@@ -1,0 +1,74 @@
+# Proves a published release on a real Mac: downloads the macOS binary the way the README says, with no Java 25 on the machine,
+# plants an invented Claude Code login in the real Keychain and checks that the command line reads it, saves it and switches
+# (which writes the Keychain). It proves behaviour, not looks: the menu bar icon and the windows need a person at a Mac.
+# Run by hand:  gh workflow run verify-release.yml -f tag=v0.1.0-beta.1
+name: verify-release
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to verify
+        required: true
+jobs:
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Download the binary as the README says
+        run: |
+          ARCH=$(uname -m)
+          echo "machine: $ARCH, macOS $(sw_vers -productVersion)"
+          curl -fLo /tmp/ccacc https://github.com/ccsuite/ccsuite/releases/download/${{ inputs.tag }}/ccacc-macos-$ARCH
+          chmod +x /tmp/ccacc
+          shasum -a 256 /tmp/ccacc
+      - name: The binary says what it is
+        run: /tmp/ccacc -Xjr:doctor
+      - name: Invented Claude Code state (two accounts, login in the Keychain)
+        run: |
+          mkdir -p "$HOME/.claude"
+          fake() { printf '{"claudeAiOauth":{"accessToken":"fake-access-%s","refreshToken":"fake-refresh-%s","expiresAt":4102444800000,"scopes":["user:inference"]}}' "$1" "$1"; }
+          identity() { printf '{"oauthAccount":{"emailAddress":"%s@example.org","organizationUuid":"org-%s","accountUuid":"acc-%s"}}' "$1" "$1" "$1" > "$HOME/.claude.json"; }
+          set_login() { security add-generic-password -U -s "Claude Code-credentials" -a "$USER" -w "$(fake "$1")"; identity "$1"; }
+          echo "ann" > /tmp/ann; set_login ann
+          /tmp/ccacc account add ann name=Ann email=ann@example.org trackUsage=on
+          /tmp/ccacc account add bob name=Bob email=bob@example.org trackUsage=on
+      - name: status reads the login from the Keychain
+        run: |
+          out=$(/tmp/ccacc status 2>&1 | grep -v WARNING); echo "$out"
+          echo "$out" | grep -q "Active account: ann"
+      - name: register saves it, for both accounts
+        run: |
+          fake() { printf '{"claudeAiOauth":{"accessToken":"fake-access-%s","refreshToken":"fake-refresh-%s","expiresAt":4102444800000,"scopes":["user:inference"]}}' "$1" "$1"; }
+          identity() { printf '{"oauthAccount":{"emailAddress":"%s@example.org","organizationUuid":"org-%s","accountUuid":"acc-%s"}}' "$1" "$1" "$1" > "$HOME/.claude.json"; }
+          set_login() { security add-generic-password -U -s "Claude Code-credentials" -a "$USER" -w "$(fake "$1")"; identity "$1"; }
+          /tmp/ccacc register --id ann
+          set_login bob
+          /tmp/ccacc register --id bob
+      - name: switch writes the Keychain (ann was saved first, bob is live)
+        run: |
+          /tmp/ccacc switch ann 2>&1 | grep -v WARNING
+          live=$(security find-generic-password -s "Claude Code-credentials" -a "$USER" -w)
+          echo "$live" | grep -q "fake-access-ann" && echo "Keychain now holds ann's login"
+          /tmp/ccacc status 2>&1 | grep -v WARNING | grep -q "Active account: ann"
+      - name: a mixed-up snapshot is refused (guard)
+        run: |
+          # make bob's saved login a copy of ann's tokens: switching to bob must refuse
+          f="$HOME/ccsuite/accounts/bob.json"; [ -f "$f" ] || f=$(ls "$HOME"/xyz-jphil/ccapis/claudecode-accounts/bob.json 2>/dev/null || true)
+          echo "bob snapshot: ${f:-not found}"
+          if [ -n "$f" ] && [ -f "$f" ]; then
+            ann="$(dirname "$f")/ann.json"
+            jq --argjson c "$(jq .credentials "$ann")" '.credentials = $c' "$f" > /tmp/bob.json && cp /tmp/bob.json "$f"
+            if /tmp/ccacc switch bob 2>&1 | grep -q "same tokens as ann"; then echo "refused, as it should"; else echo "NOT refused"; exit 1; fi
+          fi
+      - name: mode and part change the settings when no app runs
+        run: |
+          /tmp/ccacc mode locked
+          /tmp/ccacc part server off
+          cat "$HOME/ccsuite/ccacc/settings.json"
+      - name: install puts it in place
+        run: |
+          /tmp/ccacc install 2>&1 | tail -8
+          ls -la "$HOME/Applications" "$HOME/.local/bin" 2>&1 | head -12

@@ -78,7 +78,7 @@ if ($Changes) { $notes = [IO.File]::ReadAllText((Resolve-Path $Changes).Path).Tr
 $notesFile = Join-Path $target 'jr\release-notes.md'
 [IO.File]::WriteAllText($notesFile, $notes + "`n")
 $assets = (Get-ChildItem $all -File | Where-Object Name -ne 'ccacc.update.json').FullName
-$flags = if ($pre) { @('--prerelease') } else { @('--latest=true') }
+$flags = if ($pre) { @('--prerelease', '--latest=false') } else { @('--latest=true') }
 # gitgate's gh prints its ACCOUNT notice on stderr; with ErrorActionPreference Stop PowerShell turns that into a terminating error
 # before gh has run (2026-10-31, this script and the known cfucli release.ps1 failure). So stderr is shown, not fatal, and the exit code decides.
 $prev = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
