@@ -44,9 +44,10 @@ jobs:
         run: |
           echo "machine: $(uname -m), macOS $(sw_vers -productVersion)"
           curl -fLo /tmp/ccacc.jar "${{ inputs.jar_url }}"
-          printf '#!/bin/sh
-exec java --enable-native-access=ALL-UNNAMED -jar /tmp/ccacc.jar "$@"
-' > /tmp/ccacc
+          {
+            echo '#!/bin/sh'
+            echo 'exec java --enable-native-access=ALL-UNNAMED -jar /tmp/ccacc.jar "$@"'
+          } > /tmp/ccacc
           chmod +x /tmp/ccacc
           /tmp/ccacc help | head -12
       - name: Invented Claude Code state (two accounts, login in the Keychain)
