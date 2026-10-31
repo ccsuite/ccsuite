@@ -56,7 +56,7 @@ public final class CcaccMain {
         if (reply.isPresent()) return print(reply.get());
         try {
             var manager = new ccsuite.base.config.CredentialsManager();
-            var accounts = new Accounts(manager, manager.load(), () -> { });
+            var accounts = new Accounts(manager, manager.credentialsFileExists() ? manager.load() : new ccsuite.base.model.CCAPIsCredentials(), () -> { });
             return print(new Commands(accounts, new CcaccSettingsStore(), null, null).run(args));
         } catch (Exception e) {
             System.err.println("Error: " + e.getMessage());

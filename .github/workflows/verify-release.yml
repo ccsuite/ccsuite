@@ -7,8 +7,13 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag to verify
-        required: true
+        description: Release tag to verify (the macOS binary of that release is downloaded and run)
+        required: false
+        default: ''
+      jar_url:
+        description: Quick loop - run this macOS jar with Java 25 instead of the release binary (the binary path is the final check)
+        required: false
+        default: ''
 jobs:
   macos:
     strategy:
@@ -18,6 +23,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Download the binary as the README says
+        if: ${{ inputs.jar_url == '' }}
         run: |
           ARCH=$(uname -m)
           echo "machine: $ARCH, macOS $(sw_vers -productVersion)"
@@ -25,7 +31,24 @@ jobs:
           chmod +x /tmp/ccacc
           shasum -a 256 /tmp/ccacc
       - name: The binary starts, fetches its jar and Java, and prints its help
+        if: ${{ inputs.jar_url == '' }}
         run: /tmp/ccacc -Xjr:yes help | head -12
+      - name: Quick loop - Java 25 and the jar
+        if: ${{ inputs.jar_url != '' }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Quick loop - run the jar as ccacc
+        if: ${{ inputs.jar_url != '' }}
+        run: |
+          echo "machine: $(uname -m), macOS $(sw_vers -productVersion)"
+          curl -fLo /tmp/ccacc.jar "${{ inputs.jar_url }}"
+          printf '#!/bin/sh
+exec java --enable-native-access=ALL-UNNAMED -jar /tmp/ccacc.jar "$@"
+' > /tmp/ccacc
+          chmod +x /tmp/ccacc
+          /tmp/ccacc help | head -12
       - name: Invented Claude Code state (two accounts, login in the Keychain)
         run: |
           mkdir -p "$HOME/.claude"

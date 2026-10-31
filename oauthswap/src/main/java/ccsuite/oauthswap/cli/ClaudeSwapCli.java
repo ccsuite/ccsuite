@@ -50,7 +50,7 @@ public final class ClaudeSwapCli implements Callable<Integer> {
             var root = storeDir != null ? storeDir : AccountStore.defaultStoreRoot();
             var store = new AccountStore(root, mapper);
             var mgr = credentialsXml != null ? new CredentialsManager(credentialsXml) : new CredentialsManager();
-            CCAPIsCredentials creds = mgr.load();
+            CCAPIsCredentials creds = mgr.credentialsFileExists() ? mgr.load() : new CCAPIsCredentials();   // a new machine has no accounts yet
             return new SwapService(live, store, creds, mgr.getCredentialsPath());
         } catch (Exception e) {
             throw new RuntimeException("Initialization failed: " + e.getMessage(), e);

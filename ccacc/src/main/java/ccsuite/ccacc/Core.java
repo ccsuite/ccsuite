@@ -35,7 +35,7 @@ final class Core {
         var mapper = new ObjectMapper().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         live = new ClaudeLiveStore(ClaudeCodePaths.defaults(), mapper);
         store = new AccountStore(AccountStore.defaultStoreRoot(), mapper);
-        creds = credentials.load();
+        creds = credentials.credentialsFileExists() ? credentials.load() : new CCAPIsCredentials();   // a new machine has no accounts yet
         creds.credentials(new CopyOnWriteArrayList<>(creds.credentials()));
         swap = new SwapService(live, store, creds, credentials.getCredentialsPath());
         oauth = new OAuthUsageClient(mapper);
