@@ -71,7 +71,7 @@ if ($DryRun) { Write-Host "dry run - nothing published. Assets are in $all"; ret
 
 $base = "https://github.com/$repo/releases/download/$tag"
 $notes = "Install on Windows, in cmd or PowerShell:`n`n    curl.exe -fLo ccacc.exe $base/ccacc.exe`n    .\ccacc.exe install --start-at-login" +
-         "`n`nInstall on a Mac, in Terminal (one line; uname -m picks Apple silicon or Intel):`n`n    curl -fLo /tmp/ccacc $base/ccacc-macos-`$(uname -m) && chmod +x /tmp/ccacc && /tmp/ccacc install --start-at-login" +
+         "`n`nInstall on a Mac, in Terminal (one line; uname -m picks Apple silicon or Intel):`n`n    curl -fLo /tmp/ccacc $base/ccacc-macos-`$(uname -m) && chmod +x /tmp/ccacc && /tmp/ccacc -Xjr:yes install --start-at-login" +
          "`n`nThe Mac binary is signed ad hoc, not by an Apple developer: downloaded with curl it opens as is. Update later with ``ccacc update``." +
          $(if ($pre) { "`n`nThis is a pre-release (beta): it updates along the beta channel. Windows is in daily use; on the Mac the tray icon, the windows and the Keychain access have not yet been tried by a person." } else { '' })
 if ($Changes) { $notes = [IO.File]::ReadAllText((Resolve-Path $Changes).Path).Trim() + "`n`n" + $notes }

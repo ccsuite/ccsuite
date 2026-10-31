@@ -45,9 +45,16 @@ public final class CcaccApp extends Application {
             var window = new MainWindow(parts, bridge, COLOR, items::status);
             items.openWindow = window::toggle;
             bridge.onChange = window::redrawIfShowing;
-            var menu = new TrayMenu(FxImages.of(CcaccIcon.draw(64)), "ccacc", COLOR, items::status, items::build);
-            tray = FxTray.install(CcaccIcon.draw(32), "ccacc", menu, window::toggle);
-            bridge.tray = tray;
+            try {
+                var menu = new TrayMenu(FxImages.of(CcaccIcon.draw(64)), "ccacc", COLOR, items::status, items::build);
+                tray = FxTray.install(CcaccIcon.draw(32), "ccacc", menu, window::toggle);
+                bridge.tray = tray;
+            } catch (Throwable noTray) {
+                // A desktop without a tray (or one where the tray cannot be made, as may happen on a Mac): the app still runs,
+                // and its window is the way in, shown now.
+                System.err.println("ccacc: no tray icon here (" + noTray + "); showing the window instead.");
+                window.show();
+            }
             parts.startConfigured(getParameters().getRaw());
         } catch (Exception e) {
             System.err.println("ccacc could not start: " + e);
