@@ -32,6 +32,7 @@ final class TrayItems {
     }
 
     List<MenuItem> build() {
+        IdleTrim.touch();
         var l = new ArrayList<MenuItem>();
         l.add(item("Open ccacc window", () -> openWindow.run()));
         l.add(new SeparatorMenuItem());

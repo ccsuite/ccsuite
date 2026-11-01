@@ -134,6 +134,7 @@ final class MainWindow {
     }
 
     void show() {
+        IdleTrim.touch();
         redraw();
         stage.show();
         stage.toFront();

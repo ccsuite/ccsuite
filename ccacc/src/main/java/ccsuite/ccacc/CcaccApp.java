@@ -55,6 +55,7 @@ public final class CcaccApp extends Application {
                 System.err.println("ccacc: no tray icon here (" + noTray + "); showing the window instead.");
                 window.show();
             }
+            IdleTrim.start();
             parts.startConfigured(getParameters().getRaw());
         } catch (Exception e) {
             System.err.println("ccacc could not start: " + e);

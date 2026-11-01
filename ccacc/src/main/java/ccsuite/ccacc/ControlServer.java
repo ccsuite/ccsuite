@@ -64,6 +64,7 @@ final class ControlServer implements AutoCloseable {
 
     private void serve(Socket conn) {
         try (conn) {
+            IdleTrim.touch();
             conn.setSoTimeout(30_000);
             var in = new BufferedReader(new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8));
             var line = readLine(in);

@@ -44,6 +44,7 @@ final class WatchBridge implements WatchListener {
     }
 
     @Override public void onPrompt(String activeId, String targetId, AccountUsage active, AccountUsage target) {
+        IdleTrim.touch();
         pendingTarget = targetId;
         var t = tray;
         if (t == null) return;
@@ -56,6 +57,7 @@ final class WatchBridge implements WatchListener {
     @Override public void onSwitched(SwitchResult r, boolean automatic) { onSwitched(r, automatic, null); }
 
     @Override public void onSwitched(SwitchResult r, boolean automatic, String reason) {
+        IdleTrim.touch();
         pendingTarget = null;
         activeId = r.toId();
         activeChanged.accept(r.toId());
