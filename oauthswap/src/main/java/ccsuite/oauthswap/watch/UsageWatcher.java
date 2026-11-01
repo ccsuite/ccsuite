@@ -6,6 +6,7 @@ import ccsuite.oauthclient.*;
 import ccsuite.oauthswap.usage.*;
 import ccsuite.base.model.CCAPICredential;
 
+import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.stream.*;
@@ -27,7 +28,7 @@ public final class UsageWatcher {
     private final UsageService usage;
     private final SwapService swap;
     private final SwitchPlanner planner;
-    private final RebalancePlanner rebalancer;
+    private final BalancePlanner balancer;
     private final WatchConfig cfg;
     private final WatchListener listener;
 
@@ -44,9 +45,9 @@ public final class UsageWatcher {
     private long lastPromptAt;
     private Map<String, AccountUsage> lastUsages = Map.of();
 
-    public UsageWatcher(UsageService usage, SwapService swap, SwitchPlanner planner, RebalancePlanner rebalancer,
+    public UsageWatcher(UsageService usage, SwapService swap, SwitchPlanner planner, BalancePlanner balancer,
                         WatchConfig cfg, WatchListener listener) {
-        this.usage = usage; this.swap = swap; this.planner = planner; this.rebalancer = rebalancer;
+        this.usage = usage; this.swap = swap; this.planner = planner; this.balancer = balancer;
         this.cfg = cfg; this.listener = listener;
     }
 
@@ -96,9 +97,10 @@ public final class UsageWatcher {
         var usages = collect(activeId);
         var decision = planner.decide(activeId, softLimit(activeId), Targets.of(usages, activeId, swap::isServable));
         if (decision.kind() == Decision.Kind.NONE && cfg.rebalance()) {
-            var target = rebalancer.bestTarget(activeId, Targets.of(usages, activeId, swap::isServable), limitPercents());
-            if (target.isPresent())
-                decision = Decision.prompt(target.get(), "rebalance: " + activeId + " is at a higher normalized pace than " + target.get());
+            var plan = balancer.plan(activeId, Targets.of(usages, activeId, swap::isServable), policies(), Instant.now());
+            if (plan.isPresent())
+                decision = plan.get().moves(activeId) ? Decision.prompt(plan.get().targetId(), plan.get().reason())
+                        : Decision.none("stay: " + plan.get().reason());
         }
         listener.onPoll(activeId, usages, decision);
         return decision;
@@ -150,8 +152,8 @@ public final class UsageWatcher {
 
     private void act(String activeId, Map<String, AccountUsage> usages, Decision d) {
         switch (d.kind()) {
-            case AUTO_SWITCH -> { if (cfg.autoSwitch() && mode.mayAutoSwitch()) doSwitch(d.targetId(), true); else maybePrompt(activeId, d.targetId(), usages); }
-            case PROMPT -> maybePrompt(activeId, d.targetId(), usages);
+            case AUTO_SWITCH -> { if (cfg.autoSwitch() && mode.mayAutoSwitch()) doSwitch(d.targetId(), true, d.reason()); else maybePrompt(activeId, d.targetId(), usages); }
+            case PROMPT -> { if (!burning(activeId, usages)) maybePrompt(activeId, d.targetId(), usages); }
             case NONE -> { if (cfg.rebalance() && mode.mayRebalance()) maybeRebalance(activeId, usages); }
         }
     }
@@ -162,13 +164,26 @@ public final class UsageWatcher {
             log.debug("rebalance held for {} more minutes: the user chose {}", hold.minutesLeft(System.currentTimeMillis()), activeId);
             return;
         }
-        rebalancer.bestTarget(activeId, Targets.of(usages, activeId, swap::isServable), limitPercents())
-                .ifPresent(target -> doSwitch(target, true));
+        balancer.plan(activeId, Targets.of(usages, activeId, swap::isServable), policies(), Instant.now())
+                .ifPresent(plan -> {
+                    if (plan.moves(activeId)) doSwitch(plan.targetId(), true, plan.reason());
+                    else log.debug("staying on {}: {}", activeId, plan.reason());
+                });
     }
 
-    private Map<String, Double> limitPercents() {
-        return swap.eligible().stream()
-                .collect(Collectors.toMap(CCAPICredential::id, CCAPICredential::claudeCodeLimitPercent));
+    /**
+     * The week-end burn is using the active account up on purpose, so its soft-limit prompt would only nag: a primary
+     * account goes past its limit to 100%, where the depletion switch still moves Claude Code on.
+     */
+    private boolean burning(String activeId, Map<String, AccountUsage> usages) {
+        if (!cfg.rebalance() || !mode.mayRebalance()) return false;
+        return balancer.burn(activeId, Targets.of(usages, activeId, swap::isServable), policies(), Instant.now())
+                .map(plan -> !plan.moves(activeId)).orElse(false);
+    }
+
+    private Map<String, BalancePlanner.Policy> policies() {
+        return swap.eligible().stream().collect(Collectors.toMap(CCAPICredential::id,
+                c -> new BalancePlanner.Policy(c.claudeCodeLimitPercent(), c.primary())));
     }
 
     private void maybePrompt(String activeId, String targetId, Map<String, AccountUsage> usages) {
@@ -178,12 +193,15 @@ public final class UsageWatcher {
         listener.onPrompt(activeId, targetId, usages.get(activeId), usages.get(targetId));
     }
 
-    private void doSwitch(String id, boolean automatic) {
+    private void doSwitch(String id, boolean automatic) { doSwitch(id, automatic, null); }
+
+    private void doSwitch(String id, boolean automatic, String reason) {
         try {
             var r = swap.switchTo(id);
             if (automatic) hold.automatic(id); else hold.manual(id, System.currentTimeMillis());
             lastPromptId = null;
-            listener.onSwitched(r, automatic);
+            if (reason != null) log.info("switched {} -> {}: {}", r.fromId(), r.toId(), reason);
+            listener.onSwitched(r, automatic, reason);
         } catch (Exception e) {
             log.warn("switch to {} failed: {}", id, e.toString());
             listener.onError(e, 0);

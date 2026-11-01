@@ -14,6 +14,8 @@ What it does:
 - Switches Claude Code to another account in one click, or with `ccacc switch <id>`. A switch you make is respected: automatic rebalancing waits half an hour before moving you again.
 - Has three modes. **Auto** moves Claude Code when an account runs out and rebalances toward the account with the most room. **Locked** never moves it, but still warns you when the account nears its limit. **Paused** does not even poll.
 - Lets you give each account a limit (the share of its quota Claude Code may use), and mark an account **monitor only**: it is watched and counted in the totals, but never switched to.
+- Protects accounts that someone else relies on. In Auto mode, once an account has used more than half of its 5-hour quota, faster than the 5 hours pass, Claude Code moves off it, and no move sends load onto an account past that line. Mark your own accounts **primary** to exempt them.
+- Does not waste a week's quota. Quota left unused when a week resets is lost, so in its last 24 hours an account is used up first: a primary account to 100%, any other up to its own limit.
 - Windows only: a small card in the taskbar, one account at a time, with the active account's name glowing, red when you are spending too fast.
 - Can run a local proxy on the machine (what `ccls` did). It is off until you turn it on with `ccacc part server on`.
 

@@ -1,5 +1,6 @@
 package ccsuite.usagetracker.ui;
 
+import ccsuite.base.usage.Pace;
 import ccsuite.usagetracker.model.AccountUsage;
 import javafx.scene.paint.Color;
 
@@ -37,9 +38,7 @@ public final class GlowPulse {
      * a time of 0 has no rate.
      */
     public static boolean danger(double fiveUsage, double fiveTime, double weekUsage, double weekTime) {
-        var fiveFast = fiveUsage > 50 && fiveTime > 0 && fiveUsage / fiveTime * 100 > 100;
-        var weekFast = weekTime > 50 && weekUsage / weekTime * 100 > 100;
-        return fiveFast || weekFast;
+        return Pace.fiveHourTooFast(fiveUsage, fiveTime) || Pace.weekTooFast(weekUsage, weekTime);
     }
 
     public static boolean danger(AccountUsage a) {

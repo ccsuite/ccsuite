@@ -53,13 +53,16 @@ final class WatchBridge implements WatchListener {
                         + "). Open the ccacc menu to switch to " + targetId + " (" + weekFree(target) + " weekly free).");
     }
 
-    @Override public void onSwitched(SwitchResult r, boolean automatic) {
+    @Override public void onSwitched(SwitchResult r, boolean automatic) { onSwitched(r, automatic, null); }
+
+    @Override public void onSwitched(SwitchResult r, boolean automatic, String reason) {
         pendingTarget = null;
         activeId = r.toId();
         activeChanged.accept(r.toId());
         var t = tray;
         if (t != null) t.message(automatic ? "Auto-switched account" : "Switched account",
-                (r.fromId() == null ? "(unmanaged)" : r.fromId()) + " → " + r.toId() + " (" + r.toEmail() + ")");
+                (r.fromId() == null ? "(unmanaged)" : r.fromId()) + " → " + r.toId() + " (" + r.toEmail() + ")"
+                        + (reason == null ? "" : "\n" + reason));
     }
 
     /** Locked, and Claude Code moved off the locked account by itself: say so and offer the way back (the top row of the menu). Never switches by itself. */

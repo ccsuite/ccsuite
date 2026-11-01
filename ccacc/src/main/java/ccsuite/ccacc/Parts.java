@@ -35,7 +35,7 @@ final class Parts {
         if (watcher != null) return;
         var cfg = WatchConfig.defaults();
         watcher = new UsageWatcher(core.usage, core.swap, new SwitchPlanner(cfg.depletedAtPct(), cfg.minTargetHeadroom()),
-                new RebalancePlanner(cfg.minTargetHeadroom(), cfg.rebalanceMinImprovement()), cfg, bridge);
+                BalancePlanner.of(cfg), cfg, bridge);
         watcher.mode(settings.watchMode());
         watcher.start();
     }

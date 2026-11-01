@@ -1,5 +1,10 @@
 package ccsuite.oauthclient;
 
+import java.time.Duration;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeParseException;
+
 /**
  * Normalized utilization for one Claude Code account: the 5-hour and 7-day rate-limit
  * windows as percentages (0..100) with their reset timestamps, plus how much of the 7-day
@@ -41,6 +46,28 @@ public record AccountUsage(
     }
 
     public QuotaHealth weeklyHealth() { return QuotaHealth.ofWeekly(sevenDayAverage(), sevenDayPct); }
+
+    /** The share of the 5-hour window that has passed at {@code now}, 0 to 100; {@code null} when its reset time is unknown. */
+    public Double fiveHourElapsedPct(Instant now) {
+        var left = untilReset(fiveHourResetsAt, now);
+        if (left == null) return null;
+        var gone = (FIVE_HOURS.getSeconds() - left.getSeconds()) * 100.0 / FIVE_HOURS.getSeconds();
+        return Math.max(0, Math.min(100, gone));
+    }
+
+    /** Time left until the weekly window resets, at {@code now}; {@code null} when unknown. */
+    public Duration weekLeft(Instant now) { return untilReset(sevenDayResetsAt, now); }
+
+    private static final Duration FIVE_HOURS = Duration.ofHours(5);
+
+    private static Duration untilReset(String resetsAtIso, Instant now) {
+        if (resetsAtIso == null || resetsAtIso.isBlank()) return null;
+        try {
+            return Duration.between(now, OffsetDateTime.parse(resetsAtIso).toInstant());
+        } catch (DateTimeParseException e) {
+            return null;
+        }
+    }
 
     /** Reset timestamp of the binding (higher-utilization) window. */
     public String bindingResetsAt() {

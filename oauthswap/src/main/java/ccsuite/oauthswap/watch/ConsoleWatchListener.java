@@ -40,6 +40,11 @@ public final class ConsoleWatchListener implements WatchListener {
                 + (r.fromId() == null ? "(unmanaged)" : r.fromId()) + " -> " + r.toId());
     }
 
+    @Override public void onSwitched(SwitchResult r, boolean automatic, String reason) {
+        onSwitched(r, automatic);
+        if (reason != null) System.out.println("  because " + reason);
+    }
+
     @Override public void onError(Throwable e, int nextIntervalSec) {
         System.out.println("ERROR: " + e.getMessage() + (nextIntervalSec > 0 ? " (retry " + nextIntervalSec + "s)" : ""));
     }

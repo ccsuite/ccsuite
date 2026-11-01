@@ -63,6 +63,18 @@ public class CCAPICredential {
     @XmlAttribute(name = "watchOnly", required = false)
     private Boolean watchOnly;
 
+    @XmlAttribute(name = "primary", required = false)
+    private Boolean primary;
+
+    /**
+     * The owner's own account, used by nobody else. The watcher then never holds back on it for the sake of another
+     * person: no 5-hour guard, and in the last day of its week it is used up to 100% (other accounts only up to their
+     * {@link #claudecodelimit()}), since a week's quota that is not used is lost at the reset. Defaults to false.
+     */
+    public boolean primary() {
+        return primary != null ? primary : false;
+    }
+
     /**
      * Monitor only: the account is tracked (usage shown, counted in the totals) but never swapped to for
      * Claude Code and never used to serve the local proxy, e.g. a reserve kept for an emergency.

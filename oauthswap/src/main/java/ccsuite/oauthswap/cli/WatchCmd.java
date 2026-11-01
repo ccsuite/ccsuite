@@ -36,9 +36,9 @@ public final class WatchCmd implements Callable<Integer> {
             var svc = parent.service();
             var usage = parent.usageService(svc);
             var cfg = new WatchConfig(interval, maxBackoff, 100.0, 5.0, limit, !noAutoSwitch, 600,
-                    !noRebalance, rebalanceMinImprovement);
+                    !noRebalance, rebalanceMinImprovement, 50.0, 24);
             var planner = new SwitchPlanner(cfg.depletedAtPct(), cfg.minTargetHeadroom());
-            var rebalancer = new RebalancePlanner(cfg.minTargetHeadroom(), cfg.rebalanceMinImprovement());
+            var rebalancer = BalancePlanner.of(cfg);
 
             if (once) {
                 new UsageWatcher(usage, svc, planner, rebalancer, cfg, new ConsoleWatchListener()).runOnce();

@@ -14,6 +14,9 @@ public interface WatchListener {
 
     void onSwitched(SwitchResult result, boolean automatic);
 
+    /** A switch with the watcher's reason for it ({@code null} for one the user asked for). */
+    default void onSwitched(SwitchResult result, boolean automatic, String reason) { onSwitched(result, automatic); }
+
     void onError(Throwable error, int nextIntervalSec);
 
     /** In Locked mode, Claude Code turned up on another account than the locked one, and the watcher did not switch it (a running Claude Code session writing its own login back, or another tool). */

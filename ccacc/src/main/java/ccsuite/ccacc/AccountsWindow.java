@@ -25,7 +25,8 @@ final class AccountsWindow {
     final ListView<String> list = new ListView<>();
     final TextField name = new TextField(), email = new TextField(), limit = new TextField(), tier = new TextField();
     final CheckBox include = new CheckBox("Takes part (active)"), track = new CheckBox("Track its usage"),
-            monitorOnly = new CheckBox("Monitor only: watched and counted in the totals, never switched to, never served from");
+            monitorOnly = new CheckBox("Monitor only: watched and counted in the totals, never switched to, never served from"),
+            primary = new CheckBox("Primary: mine alone. No 5-hour guard, and in the last day of its week it is used up to 100%");
     final Label note = new Label();
     boolean filling;
 
@@ -48,6 +49,7 @@ final class AccountsWindow {
             grid.addRow(row++, new Label((String) f[0]), (TextField) f[1]);
         limit.setPromptText("95");
         monitorOnly.setWrapText(true);
+        primary.setWrapText(true);
         var apply = new Button("Apply  (F2)");
         apply.setOnAction(e -> apply());
         var register = new Button("Save Claude Code's current login for this account…");
@@ -58,12 +60,12 @@ final class AccountsWindow {
         remove.setOnAction(e -> remove());
         note.setWrapText(true);
         note.setStyle("-fx-text-fill: #8a3b1c;");
-        var form = new VBox(10, grid, include, track, monitorOnly, new HBox(10, apply), register, note);
+        var form = new VBox(10, grid, include, track, monitorOnly, primary, new HBox(10, apply), register, note);
         form.setPadding(new Insets(0, 0, 0, 14));
         HBox.setHgrow(form, Priority.ALWAYS);
         var body = new VBox(10, new HBox(0, list, form), new HBox(10, add, remove));
         body.setPadding(new Insets(12, 14, 12, 14));
-        var scene = new Scene(new VBox(band, body), 700, 430);
+        var scene = new Scene(new VBox(band, body), 700, 480);
         scene.setOnKeyPressed(e -> {
             if (e.getCode() == KeyCode.ESCAPE) stage.hide();
             else if (e.getCode() == KeyCode.F2) apply();
@@ -89,7 +91,7 @@ final class AccountsWindow {
     }
 
     static String row(CCAPICredential c) {
-        return "%-10s %s%s".formatted(c.id(), c.watchOnly() ? "monitor only" : "", c.active() ? "" : "  (off)");
+        return "%-10s %s%s".formatted(c.id(), c.watchOnly() ? "monitor only" : c.primary() ? "primary" : "", c.active() ? "" : "  (off)");
     }
 
     java.util.List<String> idsNow() { return accounts.list().stream().map(CCAPICredential::id).toList(); }
@@ -105,7 +107,7 @@ final class AccountsWindow {
         var c = chosen();
         filling = true;
         try {
-            for (var n : new javafx.scene.Node[]{name, email, limit, tier, include, track, monitorOnly}) n.setDisable(c == null);
+            for (var n : new javafx.scene.Node[]{name, email, limit, tier, include, track, monitorOnly, primary}) n.setDisable(c == null);
             if (c == null) return;
             name.setText(c.name() == null ? "" : c.name());
             email.setText(c.email() == null ? "" : c.email());
@@ -114,6 +116,7 @@ final class AccountsWindow {
             include.setSelected(c.active());
             track.setSelected(c.trackUsage());
             monitorOnly.setSelected(c.watchOnly());
+            primary.setSelected(c.primary());
         } finally {
             filling = false;
         }
@@ -130,6 +133,7 @@ final class AccountsWindow {
         p.put("active", include.isSelected() ? "on" : "off");
         p.put("trackUsage", track.isSelected() ? "on" : "off");
         p.put("watchOnly", monitorOnly.isSelected() ? "on" : "off");
+        p.put("primary", primary.isSelected() ? "on" : "off");
         try {
             accounts.set(c.id(), p);
             note.setText("Saved " + c.id() + ".");

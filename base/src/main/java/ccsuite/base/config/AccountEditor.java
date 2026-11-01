@@ -11,7 +11,7 @@ public final class AccountEditor {
 
     /** What {@link #set} accepts. The id is the account's name in every other file and cannot be changed. */
     public static final List<String> PROPERTIES = List.of("name", "email", "ccapiBaseUrl", "orgId", "key", "active",
-            "trackUsage", "ping", "tier", "ua", "trackChats", "claudecodelimit", "watchOnly");
+            "trackUsage", "ping", "tier", "ua", "trackChats", "claudecodelimit", "watchOnly", "primary");
 
     /** A new account from {@code id}, {@code name} and {@code email} (required) and any other property; the id must be new. */
     public static CCAPICredential add(CCAPIsCredentials all, Map<String, String> props) {
@@ -41,8 +41,8 @@ public final class AccountEditor {
 
     /** One line about an account; the session key is never shown, only whether there is one. */
     public static String describe(CCAPICredential c) {
-        return "%-10s %-22s %s  active=%s trackUsage=%s monitorOnly=%s ping=%s tier=%d limit=%s key=%s".formatted(c.id(), c.name(), c.email(), c.active(),
-                c.trackUsage(), c.watchOnly(), c.ping(), c.tier(), c.claudecodelimit(),
+        return "%-10s %-22s %s  active=%s trackUsage=%s monitorOnly=%s primary=%s ping=%s tier=%d limit=%s key=%s".formatted(c.id(), c.name(), c.email(), c.active(),
+                c.trackUsage(), c.watchOnly(), c.primary(), c.ping(), c.tier(), c.claudecodelimit(),
                 c.key() == null || c.key().isBlank() ? "none" : "set");
     }
 
@@ -57,6 +57,7 @@ public final class AccountEditor {
             case "ua" -> c.ua(v);
             case "claudecodelimit" -> c.claudecodelimit(limit(v));
             case "watchOnly" -> c.watchOnly(flag(property, v));
+            case "primary" -> c.primary(flag(property, v));
             case "active" -> c.active(flag(property, v));
             case "trackUsage" -> c.trackUsage(flag(property, v));
             case "ping" -> c.ping(flag(property, v));
