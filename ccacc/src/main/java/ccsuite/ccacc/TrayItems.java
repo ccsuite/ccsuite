@@ -60,6 +60,7 @@ final class TrayItems {
         }
         l.add(item(onOff(parts.server.running()) + " Local server" + serverNote(), () -> parts.server(!parts.server.running())));
         l.add(item(onOff(parts.gate.running()) + " Gate" + gateNote(), () -> parts.gate(!parts.gate.running())));
+        l.add(item(onOff(parts.relay != null) + " Relay" + relayNote(), () -> parts.relay(parts.relay == null)));
         l.add(new SeparatorMenuItem());
         l.add(item("Open ccacc settings", () -> open(parts.store.file().toFile())));
         l.add(item("Quit ccacc", quit));
@@ -69,6 +70,12 @@ final class TrayItems {
     String gateNote() {
         if (parts.gate.running()) return "  :" + parts.gate.port();
         return parts.gateProblem == null ? "" : "  (could not start: " + parts.gateProblem + ")";
+    }
+
+    String relayNote() {
+        var r = parts.relay;
+        if (r != null) return r.problem() == null ? "  (connected)" : "  (cannot reach: " + r.problem() + ")";
+        return parts.relayProblem == null ? "" : "  (could not start: " + parts.relayProblem + ")";
     }
 
     String serverNote() {

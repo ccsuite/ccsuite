@@ -72,6 +72,7 @@ final class ApprovalWindow {
 
     VBox who() {
         var box = new VBox(3);
+        if (request.remote()) box.getChildren().add(Parts.line("Remote: this call came through the relay, from another machine.", Parts.AMBER));
         box.getChildren().add(Parts.line("Program:  " + (request.agent() == null ? "(sends no name)" : request.agent()), "#222"));
         box.getChildren().add(Parts.line("Key:  " + request.shortFingerprint() + "  (a fingerprint; the key itself is never shown)", "#222"));
         if (request.session() != null) box.getChildren().add(Parts.line("Claude Code session:  " + request.session(), "#222"));

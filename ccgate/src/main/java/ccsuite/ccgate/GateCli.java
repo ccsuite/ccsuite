@@ -11,6 +11,8 @@ public final class GateCli {
             "ccacc gate grant list | revoke <name>",
             "ccacc gate key issue <grant> [--label laptop] [--days 7]     prints the key once",
             "ccacc gate key revoke <fingerprint-prefix>",
+            "ccacc gate relay url <https://relay.example.org>      where the relay part connects (ccacc part relay on)",
+            "ccacc gate relay secret [--new]       makes the provider secret; prints only its SHA-256, for the relay server",
             "ccacc ledger [--since 2026-11-01] [--until 2026-11-02] [--by grant|job|project|model|account|day|session] [--job <tag>] [--tail]",
             "points: 1 point = 1% of one account's 5-hour window, priced per call from its tokens");
 

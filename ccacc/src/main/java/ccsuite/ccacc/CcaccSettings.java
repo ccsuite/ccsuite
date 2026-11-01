@@ -20,5 +20,8 @@ public class CcaccSettings {
     /** The gate (keys, grants, budgets, ledger) on 127.0.0.1:7787; off until switched on. */
     boolean gate = false;
     int gatePort = 7787;
+    /** The outward link to the relay (phase 2): remote callers reach the gate through it; off until switched on. */
+    boolean relay = false;
+    int relayWorkers = 4;
     WatchMode watchMode = WatchMode.AUTO;
 }

@@ -13,6 +13,10 @@ final class GateRoute {
     static int run(String[] args) {
         try {
             var list = List.of(args);
+            if (list.size() >= 2 && list.get(0).equals("gate") && list.get(1).equals("relay")) {
+                System.out.println(RelayConfig.standard().run(list.subList(2, list.size())));
+                return 0;
+            }
             if (list.size() >= 2 && list.get(0).equals("gate") && list.get(1).equals("serve")) return serve(new Flags(list.subList(2, list.size())));
             var out = GateCli.run(list.isEmpty() ? "" : list.get(0), list.size() > 1 ? list.subList(1, list.size()) : List.of());
             if (!out.isEmpty()) System.out.println(out);

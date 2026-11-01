@@ -36,7 +36,7 @@ class ApprovalWindowTest {
     }
 
     static ApprovalRequest request(String family) {
-        return new ApprovalRequest("ab".repeat(32), "example-tool/1.0", null, "claude-" + family + "-5-5", family, Instant.now());
+        return new ApprovalRequest("ab".repeat(32), "example-tool/1.0", null, "claude-" + family + "-5-5", family, false, Instant.now());
     }
 
     @Test void nothingIsGrantedBeforeTheWindowHasSettled() throws Exception {

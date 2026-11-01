@@ -10,7 +10,7 @@ class AdmissionTest {
     @TempDir Path dir;
 
     ApprovalRequest request(String key) {
-        return new ApprovalRequest(Keys.fingerprint(key), "example-tool/1.0", null, "claude-haiku-5-5", "haiku", Instant.now());
+        return new ApprovalRequest(Keys.fingerprint(key), "example-tool/1.0", null, "claude-haiku-5-5", "haiku", false, Instant.now());
     }
 
     @Test

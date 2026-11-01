@@ -24,7 +24,8 @@ final class Parts {
     final GateService gate;
     UsageWatcher watcher;
     UsageWidget widget;
-    String serverProblem, gateProblem;
+    ccsuite.ccrelay.RelayAgent relay;
+    String serverProblem, gateProblem, relayProblem;
 
     Parts(Core core, CcaccSettingsStore store, CcaccSettings settings, WatchBridge bridge, LocalServerService server, GateService gate) {
         this.core = core; this.store = store; this.settings = settings; this.bridge = bridge; this.server = server; this.gate = gate;
@@ -134,18 +135,49 @@ final class Parts {
         if (on) startGate(); else stopGate();
     }
 
+    // ---- relay (phase 2): the outward link that brings remote callers to the gate
+
+    void startRelay() {
+        if (relay != null) return;
+        try {
+            var cfg = RelayConfig.standard();
+            var url = cfg.url().orElseThrow(() -> new IllegalStateException("no relay address: ccacc gate relay url <address>"));
+            var secret = cfg.secret().orElseThrow(() -> new IllegalStateException("no provider secret: ccacc gate relay secret"));
+            relay = new ccsuite.ccrelay.RelayAgent(java.net.URI.create(url), secret,
+                    java.net.URI.create("http://127.0.0.1:" + settings.gatePort()), Math.max(1, settings.relayWorkers())).start();
+            relayProblem = null;
+        } catch (Exception e) {
+            relayProblem = e.getMessage();
+            System.err.println("ccacc: relay did not start: " + e.getMessage());
+        }
+    }
+
+    void stopRelay() {
+        if (relay != null) relay.close();
+        relay = null;
+        relayProblem = null;
+    }
+
+    void relay(boolean on) {
+        settings.relay(on);
+        store.save(settings);
+        if (on) startRelay(); else stopRelay();
+    }
+
     /** Starts what the settings say, minus what this run was told to leave out (--no-watch, --no-widget, --no-server). */
     void startConfigured(java.util.List<String> args) {
         if (settings.watch() && !args.contains("--no-watch")) startWatch();
         if (settings.widget() && !args.contains("--no-widget")) startWidget();
         if (settings.server() && !args.contains("--no-server")) startServer();
         if (settings.gate() && !args.contains("--no-gate")) startGate();
+        if (settings.relay() && !args.contains("--no-relay")) startRelay();
     }
 
     void stopAll() {
         stopWatch();
         stopWidget();
         stopServer();
+        stopRelay();
         stopGate();
     }
 }

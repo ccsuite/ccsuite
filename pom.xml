@@ -25,6 +25,7 @@
         <module>oauth</module>
         <module>chattracker</module>
         <module>quotaweights</module>
+        <module>ccrelay</module>
         <module>cclocalusagestats</module>
     </modules>
 

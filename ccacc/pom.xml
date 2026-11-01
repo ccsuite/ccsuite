@@ -61,6 +61,13 @@
             <exclusions><exclusion><groupId>org.openjfx</groupId><artifactId>*</artifactId></exclusion></exclusions>
         </dependency>
 
+        <!-- the outward link to the relay (phase 2) -->
+        <dependency>
+            <groupId>io.github.ccsuite</groupId>
+            <artifactId>ccsuite-ccrelay</artifactId>
+            <version>1.0</version>
+        </dependency>
+
         <!-- The frame every gate window is built in (band in the app colour, glow, keys swallowed until the window has settled) -->
         <dependency>
             <groupId>io.github.leasegate</groupId>

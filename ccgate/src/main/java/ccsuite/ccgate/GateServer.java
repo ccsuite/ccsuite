@@ -63,7 +63,7 @@ public final class GateServer {
             var call = identify(ex, body);
             if (call.grant() == null && call.key() != null && admission != null) {
                 var admitted = admission.admit(new ApprovalRequest(call.keyFingerprint(), ex.getRequestHeaders().getFirst("user-agent"),
-                        call.session(), call.modelAsked(), call.family(), Instant.now()));
+                        call.session(), call.modelAsked(), call.family(), call.remoteUser() != null, Instant.now()));
                 if (admitted.grant() == null) {
                     refuse(ex, call, admitted.refusal());
                     return;
@@ -99,7 +99,7 @@ public final class GateServer {
         var grant = fp == null ? null : book.current().byKey(fp).orElse(null);
         var model = body == null ? null : body.path("model").asText(null);
         return new Call().key(key).keyFingerprint(fp).grant(grant).keyRef(grant == null ? null : grant.key(fp).orElse(null))
-                .session(h.getFirst("x-claude-code-session-id")).agent(h.getFirst("x-claude-code-agent-id"))
+                .remoteUser(h.getFirst("x-ccgate-relay") != null ? "relay" : null).session(h.getFirst("x-claude-code-session-id")).agent(h.getFirst("x-claude-code-agent-id"))
                 .project(h.getFirst("x-ccgate-project")).job(h.getFirst("x-ccgate-job")).modelAsked(model)
                 .family(model == null ? "none" : weights.family(model)).stream(body != null && body.path("stream").asBoolean(false));
     }
