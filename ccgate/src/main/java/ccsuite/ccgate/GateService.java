@@ -9,11 +9,18 @@ public final class GateService {
 
     final Supplier<Accounts> accounts;
     GateServer server;
+    Approver approver;
     Accounts open;
     int port;
 
     public GateService(Supplier<Accounts> accounts) {
         this.accounts = accounts;
+    }
+
+    /** Who may approve unknown callers; set before start. Without one they are refused. */
+    public synchronized GateService approver(Approver approver) {
+        this.approver = approver;
+        return this;
     }
 
     public synchronized void start(int port, int retentionDays) throws IOException {
@@ -23,7 +30,7 @@ public final class GateService {
         ledger.prune(days);
         var spend = Spend.from(ledger, days);
         var pricing = Pricing.standard();
-        var s = new GateServer(port, GrantBook.open(), new Policy(spend), new Forwarder(open = accounts.get(), ledger, spend, pricing), ledger, pricing);
+        var s = new GateServer(port, GrantBook.open(), new Policy(spend), new Forwarder(open = accounts.get(), ledger, spend, pricing), ledger, pricing).approver(approver);
         s.start();
         server = s;
         this.port = port;

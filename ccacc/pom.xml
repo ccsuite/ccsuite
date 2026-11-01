@@ -15,7 +15,7 @@
         <maven.compiler.source>25</maven.compiler.source>
         <maven.compiler.target>25</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <javafx.version>23</javafx.version>
+        <javafx.version>25.0.2</javafx.version>
         <mainClass>ccsuite.ccacc.CcaccMain</mainClass>
         <!-- the jar the exe runs: the one just built, or -Dccacc.jar=<a stable place> for the exe that is kept -->
         <ccacc.jarname>ccacc</ccacc.jarname>
@@ -58,6 +58,14 @@
             <groupId>io.github.jarrunner</groupId>
             <artifactId>jr-apputils</artifactId>
             <version>1.1</version>
+            <exclusions><exclusion><groupId>org.openjfx</groupId><artifactId>*</artifactId></exclusion></exclusions>
+        </dependency>
+
+        <!-- The frame every gate window is built in (band in the app colour, glow, keys swallowed until the window has settled) -->
+        <dependency>
+            <groupId>io.github.leasegate</groupId>
+            <artifactId>leasegate-frame</artifactId>
+            <version>0.2.1</version>
             <exclusions><exclusion><groupId>org.openjfx</groupId><artifactId>*</artifactId></exclusion></exclusions>
         </dependency>
 

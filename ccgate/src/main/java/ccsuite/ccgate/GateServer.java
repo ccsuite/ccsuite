@@ -16,10 +16,17 @@ public final class GateServer {
     final Forwarder forwarder;
     final Ledger ledger;
     final Pricing pricing;
+    Admission admission;
     HttpServer server;
 
     public GateServer(int port, GrantBook book, Policy policy, Forwarder forwarder, Ledger ledger, Pricing pricing) {
         this.port = port; this.book = book; this.policy = policy; this.forwarder = forwarder; this.ledger = ledger; this.pricing = pricing;
+    }
+
+    /** Who may say yes to a caller with an unknown key; without one such a call is refused at once. */
+    public GateServer approver(Approver approver) {
+        admission = approver == null ? null : new Admission(approver, book, Admission.WAIT);
+        return this;
     }
 
     public void start() throws IOException {
@@ -35,14 +42,29 @@ public final class GateServer {
 
     void handle(HttpExchange ex) {
         try (ex) {
+            serve(ex);
+        }
+    }
+
+    /** The catch is inside the exchange's scope: an error answers with the gate's own 502, not with an empty reply. */
+    void serve(HttpExchange ex) {
+        try {
             var raw = ex.getRequestBody().readAllBytes();
             var messages = ex.getRequestURI().getPath().endsWith("/v1/messages") && ex.getRequestMethod().equals("POST");
             var body = messages ? BodyRewrite.parse(raw) : null;
             var call = identify(ex, body);
+            if (call.grant() == null && call.key() != null && admission != null) {
+                var admitted = admission.admit(new ApprovalRequest(call.keyFingerprint(), ex.getRequestHeaders().getFirst("user-agent"),
+                        call.session(), call.modelAsked(), call.family(), Instant.now()));
+                if (admitted.grant() == null) {
+                    refuse(ex, call, admitted.refusal());
+                    return;
+                }
+                call.grant(admitted.grant()).keyRef(admitted.grant().key(call.keyFingerprint()).orElse(null));
+            }
             var refusal = policy.check(call, Instant.now());
             if (refusal.isPresent()) {
-                ledger.append(Forwarder.entry(call, null, 0).outcome("refused").status(refusal.get().status()).reason(refusal.get().reason()));
-                Replies.error(ex, refusal.get().status(), refusal.get().reason());
+                refuse(ex, call, refusal.get());
                 return;
             }
             if (body != null) BodyRewrite.prepare(body, call.grant());
@@ -50,6 +72,11 @@ public final class GateServer {
         } catch (Exception e) {
             try { Replies.error(ex, 502, "gate error: " + e.getMessage()); } catch (Exception ignored) { }
         }
+    }
+
+    void refuse(HttpExchange ex, Call call, Refusal refusal) throws IOException {
+        ledger.append(Forwarder.entry(call, null, 0).outcome("refused").status(refusal.status()).reason(refusal.reason()));
+        Replies.error(ex, refusal.status(), refusal.reason());
     }
 
     Call identify(HttpExchange ex, ObjectNode body) {
