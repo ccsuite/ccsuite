@@ -36,6 +36,7 @@ public final class CcaccMain {
             case MIGRATE -> System.exit(migrate(rest));
             case SWAP -> System.exit(swap(rest));
             case CONTROL -> System.exit(control(rest));
+            case GATE -> System.exit(GateRoute.run(args));
         }
     }
 

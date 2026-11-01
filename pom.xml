@@ -20,6 +20,7 @@
         <module>accounts</module>
         <module>oauthswap</module>
         <module>localserver</module>
+        <module>ccgate</module>
         <module>ccacc</module>
         <module>oauth</module>
         <module>chattracker</module>

@@ -8,7 +8,7 @@ import java.util.Set;
  * the exe's own install, uninstall and update, the commands that change the running app (mode, part, account), or one of cswap's commands.
  */
 enum Route {
-    APP, TUI, SERVE, INSTALL, UNINSTALL, UPDATE, MIGRATE, CCU, CCLS, SWAP, CONTROL;
+    APP, TUI, SERVE, INSTALL, UNINSTALL, UPDATE, MIGRATE, CCU, CCLS, SWAP, CONTROL, GATE;
 
     static final Set<String> HELP = Set.of("-h", "--help", "help");
 
@@ -29,6 +29,7 @@ enum Route {
             case "ccls" -> CCLS;
             case "cswap" -> SWAP;
             case "mode", "part", "account" -> CONTROL;
+            case "gate", "ledger" -> GATE;
             default -> args[0].startsWith("--no-") ? APP : SWAP;
         };
     }
