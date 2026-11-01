@@ -1,0 +1,19 @@
+{
+  "note": "listPrice: USD per million tokens (Anthropic list prices, 2026-10). dollarsPerPoint: list-price dollars that move one account's 5-hour window by 1%, measured 2026-11-01 (prp 62-prp.03) on Haiku 5.5 input, Sonnet 5.5 input, output and cache read, Opus 5.5 input and output. Every other number is ASSUMED and named in that family's 'assumed' list: Haiku output, cache read for Haiku and Opus (Sonnet's dollar ratio, 4x input), all of Fable. Cache writes are always assumed: 1.25x input (5 minutes) and 2x input (1 hour), weighed with the family's input figure. Other versions of a family are assumed to follow their own list prices. A model matching no entry is priced as the most expensive family with the smallest dollarsPerPoint, and counts as wholly assumed.",
+  "dollarsPerPoint": {
+    "haiku":  { "input": 0.19,  "output": 0.19,  "cacheRead": 0.76,  "assumed": ["output", "cacheRead"] },
+    "sonnet": { "input": 0.233, "output": 0.25,  "cacheRead": 0.923, "assumed": [] },
+    "opus":   { "input": 0.36,  "output": 0.325, "cacheRead": 1.44,  "assumed": ["cacheRead"] },
+    "fable":  { "input": 0.19,  "output": 0.19,  "cacheRead": 0.76,  "assumed": ["input", "output", "cacheRead"] }
+  },
+  "models": [
+    { "match": "haiku-5",   "family": "haiku",  "input": 0.10, "output": 0.50,  "cacheRead": 0.01 },
+    { "match": "haiku",     "family": "haiku",  "input": 1.00, "output": 5.00,  "cacheRead": 0.10 },
+    { "match": "sonnet-4",  "family": "sonnet", "input": 3.00, "output": 15.00, "cacheRead": 0.30 },
+    { "match": "sonnet",    "family": "sonnet", "input": 2.00, "output": 10.00, "cacheRead": 0.20 },
+    { "match": "opus-5-5",  "family": "opus",   "input": 4.00, "output": 20.00, "cacheRead": 0.20 },
+    { "match": "opus",      "family": "opus",   "input": 5.00, "output": 25.00, "cacheRead": 0.50 },
+    { "match": "fable",     "family": "fable",  "input": 10.00, "output": 50.00, "cacheRead": 0.25 },
+    { "match": "mythos",    "family": "fable",  "input": 10.00, "output": 50.00, "cacheRead": 0.25 }
+  ]
+}

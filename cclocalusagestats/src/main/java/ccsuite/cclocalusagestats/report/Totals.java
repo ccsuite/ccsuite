@@ -12,6 +12,8 @@ public final class Totals extends Totals_A {
     long cacheWrite;
     long cacheRead;
     double points;
+    double assumedPoints;
+    double dollars;
 
     public Totals add(UsageRow r) {
         messages++;
@@ -19,7 +21,10 @@ public final class Totals extends Totals_A {
         output += UsageRow.n(r.outputTokens());
         cacheWrite += UsageRow.n(r.cacheWriteTotal());
         cacheRead += UsageRow.n(r.cacheRead());
-        points += Quota.points(r);
+        var c = Quota.cost(r);
+        points += c.points();
+        assumedPoints += c.assumedPoints();
+        dollars += c.dollars();
         return this;
     }
 
@@ -32,6 +37,8 @@ public final class Totals extends Totals_A {
         m.put("key", key);
         m.put("messages", messages);
         m.put("points", Math.round(points * 10) / 10.0);
+        m.put("assumed", points == 0 ? "0%" : Math.round(100 * assumedPoints / points) + "%");
+        m.put("dollars", Math.round(dollars * 100) / 100.0);
         m.put("input", input);
         m.put("output", output);
         m.put("cacheWrite", cacheWrite);

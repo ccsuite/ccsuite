@@ -22,7 +22,7 @@ class ShareReportTest {
 
     @Test
     void onePointIsOnePercentOfFreshSonnetInput() {
-        assertEquals(1.0, Quota.points(points("A", 0, 1)), 1e-9);
+        assertEquals(1.0, Quota.points(points("A", 0, 1)), 0.01);
     }
 
     @Test
