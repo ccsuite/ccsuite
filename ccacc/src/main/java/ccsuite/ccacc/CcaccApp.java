@@ -38,7 +38,7 @@ public final class CcaccApp extends Application {
             var store = new CcaccSettingsStore();
             var bridge = new WatchBridge();
             parts = new Parts(core, store, store.load(), bridge,
-                    new LocalServerService(core.swap, core.store, core.live, core.usage, core.oauth));
+                    new LocalServerService(core.swap, core.store, core.live, core.usage, core.oauth), GateRoute.service(core));
             var accounts = new Accounts(core.credentials, core.creds, () -> { var w = parts.watcher; if (w != null) w.pollNow(); });
             control = ControlServer.start(Control.defaultFile(), new Commands(accounts, store, parts, core.swap)::run);
             var items = new TrayItems(parts, bridge, this::quit);

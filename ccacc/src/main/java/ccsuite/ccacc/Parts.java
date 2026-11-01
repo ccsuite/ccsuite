@@ -1,6 +1,7 @@
 package ccsuite.ccacc;
 
 import ccsuite.localserver.config.SettingsManager;
+import ccsuite.ccgate.GateService;
 import ccsuite.localserver.server.LocalServerService;
 import ccsuite.oauthswap.watch.*;
 import ccsuite.usagetracker.ui.UsageWidget;
@@ -20,12 +21,13 @@ final class Parts {
     final CcaccSettings settings;
     final WatchBridge bridge;
     final LocalServerService server;
+    final GateService gate;
     UsageWatcher watcher;
     UsageWidget widget;
-    String serverProblem;
+    String serverProblem, gateProblem;
 
-    Parts(Core core, CcaccSettingsStore store, CcaccSettings settings, WatchBridge bridge, LocalServerService server) {
-        this.core = core; this.store = store; this.settings = settings; this.bridge = bridge; this.server = server;
+    Parts(Core core, CcaccSettingsStore store, CcaccSettings settings, WatchBridge bridge, LocalServerService server, GateService gate) {
+        this.core = core; this.store = store; this.settings = settings; this.bridge = bridge; this.server = server; this.gate = gate;
         bridge.activeChanged = id -> { var w = widget; if (w != null) w.activeChanged(id); };
     }
 
@@ -109,16 +111,41 @@ final class Parts {
         if (on) startServer(); else stopServer();
     }
 
+    // ---- gate
+
+    void startGate() {
+        try {
+            gate.start(settings.gatePort(), GateService.RETENTION_DAYS);
+            gateProblem = null;
+        } catch (IOException e) {
+            gateProblem = e.getMessage();
+            System.err.println("ccacc: gate did not start: " + e);
+        }
+    }
+
+    void stopGate() {
+        gate.stop();
+        gateProblem = null;
+    }
+
+    void gate(boolean on) {
+        settings.gate(on);
+        store.save(settings);
+        if (on) startGate(); else stopGate();
+    }
+
     /** Starts what the settings say, minus what this run was told to leave out (--no-watch, --no-widget, --no-server). */
     void startConfigured(java.util.List<String> args) {
         if (settings.watch() && !args.contains("--no-watch")) startWatch();
         if (settings.widget() && !args.contains("--no-widget")) startWidget();
         if (settings.server() && !args.contains("--no-server")) startServer();
+        if (settings.gate() && !args.contains("--no-gate")) startGate();
     }
 
     void stopAll() {
         stopWatch();
         stopWidget();
         stopServer();
+        stopGate();
     }
 }

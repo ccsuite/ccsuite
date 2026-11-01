@@ -17,5 +17,8 @@ public class CcaccSettings {
     boolean widget = true;
     /** The local proxy (what ccls did); off until switched on. */
     boolean server = false;
+    /** The gate (keys, grants, budgets, ledger) on 127.0.0.1:7787; off until switched on. */
+    boolean gate = false;
+    int gatePort = 7787;
     WatchMode watchMode = WatchMode.AUTO;
 }

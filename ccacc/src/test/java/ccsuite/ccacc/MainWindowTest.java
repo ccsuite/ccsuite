@@ -41,7 +41,7 @@ class MainWindowTest {
         u.put("dan", new AccountUsage(10.0, null, 20.0, null, 50.0));
         bridge.usages = u;
         var store = new CcaccSettingsStore(dir.resolve("settings.json"));
-        var parts = new Parts(null, store, new CcaccSettings(), bridge, new LocalServerService(null, null, null, null, null));
+        var parts = new Parts(null, store, new CcaccSettings(), bridge, new LocalServerService(null, null, null, null, null), new ccsuite.ccgate.GateService(() -> null));
         parts.watcher = new UsageWatcher(null, null, null, null, WatchConfig.defaults(), bridge);
         parts.watcher.mode(WatchMode.LOCKED);
         var w = onFx(() -> new MainWindow(parts, bridge, "#d97757", () -> "status line"));
@@ -60,7 +60,7 @@ class MainWindowTest {
     @Test void choosingAModeInTheWindowChangesTheWatcherAndIsSaved(@TempDir Path dir) throws Exception {
         var bridge = new WatchBridge();
         var store = new CcaccSettingsStore(dir.resolve("settings.json"));
-        var parts = new Parts(null, store, new CcaccSettings(), bridge, new LocalServerService(null, null, null, null, null));
+        var parts = new Parts(null, store, new CcaccSettings(), bridge, new LocalServerService(null, null, null, null, null), new ccsuite.ccgate.GateService(() -> null));
         parts.watcher = new UsageWatcher(null, null, null, null, WatchConfig.defaults(), bridge);
         var w = onFx(() -> new MainWindow(parts, bridge, "#d97757", () -> ""));
         onFx(() -> { w.redraw(); return null; });
@@ -71,7 +71,7 @@ class MainWindowTest {
 
     @Test void switchingWithNothingChosenOrNoWatcherSaysWhy(@TempDir Path dir) throws Exception {
         var bridge = new WatchBridge();
-        var parts = new Parts(null, new CcaccSettingsStore(dir.resolve("s.json")), new CcaccSettings(), bridge, new LocalServerService(null, null, null, null, null));
+        var parts = new Parts(null, new CcaccSettingsStore(dir.resolve("s.json")), new CcaccSettings(), bridge, new LocalServerService(null, null, null, null, null), new ccsuite.ccgate.GateService(() -> null));
         var w = onFx(() -> new MainWindow(parts, bridge, "#d97757", () -> ""));
         onFx(() -> { w.switchToChosen(); return null; });
         assertTrue(onFx(() -> w.note.getText()).contains("Choose an account"));

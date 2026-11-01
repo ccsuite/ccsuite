@@ -106,7 +106,7 @@ class ScreenshotsTest {
 
         var store = new CcaccSettingsStore(dir.resolve("settings.json"));
         var settings = new CcaccSettings();
-        var parts = new Parts(null, store, settings, bridge, new LocalServerService(null, null, null, null, null));
+        var parts = new Parts(null, store, settings, bridge, new LocalServerService(null, null, null, null, null), new ccsuite.ccgate.GateService(() -> null));
         parts.watcher = new UsageWatcher(null, null, null, null, WatchConfig.defaults(), bridge);
         parts.watcher.mode(WatchMode.AUTO);
 

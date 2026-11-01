@@ -1,6 +1,6 @@
 ccacc: Claude Code accounts (ccu, cswap and ccls in one)
   ccacc                       resident app: tray menu, account watcher, usage widget, local proxy
-  ccacc app [--no-watch] [--no-widget] [--no-server]
+  ccacc app [--no-watch] [--no-widget] [--no-server] [--no-gate]
   ccacc tui                   usage view in the terminal
   ccacc serve [--port N]      local proxy alone, no tray
   ccacc install [--start-at-login]   put this exe in your programs folder and on the PATH
@@ -11,7 +11,10 @@ ccacc: Claude Code accounts (ccu, cswap and ccls in one)
   ccacc cswap <command>                     the old cswap, same commands (also without the word cswap)
   ccacc ccls [--port N] [--no-tray]         the old ccls, same options
   ccacc mode auto|locked|paused    what the watcher may do on its own (changes the running app)
-  ccacc part watch|widget|server on|off    turn a part of the app on or off
+  ccacc part watch|widget|server|gate on|off    turn a part of the app on or off
+  ccacc gate grant|key ...    keys and grants for the gate (127.0.0.1:7787): models, budgets in quota points, expiry
+  ccacc gate serve [--port N] the gate alone, no tray
+  ccacc ledger [--by ...] [--job <tag>] [--tail]    what went through the gate: calls, tokens, quota points
   ccacc account list|add|set|remove ...    the accounts: add, remove, per-account limit, monitor-only (ccacc account for the properties)
   ccacc switch | register     change the running app, so it is the only writer
   ccacc <command>             the account commands below

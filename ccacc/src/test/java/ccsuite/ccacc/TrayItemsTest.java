@@ -31,7 +31,7 @@ class TrayItemsTest {
 
     static TrayItems items(Path dir, WatchBridge bridge, boolean withWatcher) {
         var store = new CcaccSettingsStore(dir.resolve("settings.json"));
-        var parts = new Parts(null, store, new CcaccSettings(), bridge, new LocalServerService(null, null, null, null, null));
+        var parts = new Parts(null, store, new CcaccSettings(), bridge, new LocalServerService(null, null, null, null, null), new ccsuite.ccgate.GateService(() -> null));
         if (withWatcher) parts.watcher = new UsageWatcher(null, null, null, null, WatchConfig.defaults(), bridge);
         return new TrayItems(parts, bridge, () -> {});
     }

@@ -59,10 +59,16 @@ final class TrayItems {
             l.add(item("      " + onOff(widget.floatingOn()) + " Floating window", () -> widget.floating(!widget.floatingOn())));
         }
         l.add(item(onOff(parts.server.running()) + " Local server" + serverNote(), () -> parts.server(!parts.server.running())));
+        l.add(item(onOff(parts.gate.running()) + " Gate" + gateNote(), () -> parts.gate(!parts.gate.running())));
         l.add(new SeparatorMenuItem());
         l.add(item("Open ccacc settings", () -> open(parts.store.file().toFile())));
         l.add(item("Quit ccacc", quit));
         return l;
+    }
+
+    String gateNote() {
+        if (parts.gate.running()) return "  :" + parts.gate.port();
+        return parts.gateProblem == null ? "" : "  (could not start: " + parts.gateProblem + ")";
     }
 
     String serverNote() {

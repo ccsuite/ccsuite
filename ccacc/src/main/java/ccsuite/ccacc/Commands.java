@@ -91,22 +91,22 @@ final class Commands {
     }
 
     Reply part(List<String> args) {
-        if (args.size() != 3) throw new IllegalArgumentException("usage: ccacc part watch|widget|server on|off");
+        if (args.size() != 3) throw new IllegalArgumentException("usage: ccacc part watch|widget|server|gate on|off");
         var name = args.get(1).toLowerCase(Locale.ROOT);
         var on = switch (args.get(2).toLowerCase(Locale.ROOT)) {
             case "on", "true", "yes" -> true;
             case "off", "false", "no" -> false;
             default -> throw new IllegalArgumentException("on or off, not " + args.get(2));
         };
-        if (!List.of("watch", "widget", "server").contains(name)) throw new IllegalArgumentException("the parts are watch, widget and server, not " + name);
+        if (!List.of("watch", "widget", "server", "gate").contains(name)) throw new IllegalArgumentException("the parts are watch, widget, server and gate, not " + name);
         if (parts != null) {
             fx(() -> {
-                switch (name) { case "watch" -> parts.watch(on); case "widget" -> parts.widget(on); default -> parts.server(on); }
+                switch (name) { case "watch" -> parts.watch(on); case "widget" -> parts.widget(on); case "gate" -> parts.gate(on); default -> parts.server(on); }
                 return null;
             });
         } else {
             var s = settingsStore.load();
-            switch (name) { case "watch" -> s.watch(on); case "widget" -> s.widget(on); default -> s.server(on); }
+            switch (name) { case "watch" -> s.watch(on); case "widget" -> s.widget(on); case "gate" -> s.gate(on); default -> s.server(on); }
             settingsStore.save(s);
         }
         return Reply.ok(name + " " + (on ? "on" : "off") + (parts == null ? " (ccacc is not running: saved for its next start)" : ""));
