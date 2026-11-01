@@ -27,6 +27,8 @@ final class WatchBridge implements WatchListener {
     volatile String pendingTarget;
     /** Set by the window: called on the JavaFX thread after each poll so an open window shows the new numbers. */
     volatile Runnable onChange;
+    /** Where every changed reading is written down; null in tests. */
+    volatile ReadingsLog readings;
     /** Told the account Claude Code is on whenever that changes: a switch here, or one a poll found. */
     volatile java.util.function.Consumer<String> activeChanged = id -> { };
 
@@ -34,6 +36,8 @@ final class WatchBridge implements WatchListener {
         if (!java.util.Objects.equals(activeId, this.activeId)) activeChanged.accept(activeId);
         this.activeId = activeId;
         this.usages = usages;
+        var r = readings;
+        if (r != null) r.record(activeId, usages);
         var t = tray;
         if (t == null) return;
         var active = activeId == null ? null : usages.get(activeId);

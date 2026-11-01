@@ -37,6 +37,7 @@ public final class CcaccApp extends Application {
             follower.start();
             var store = new CcaccSettingsStore();
             var bridge = new WatchBridge();
+            bridge.readings = ReadingsLog.standard();
             parts = new Parts(core, store, store.load(), bridge,
                     new LocalServerService(core.swap, core.store, core.live, core.usage, core.oauth), GateRoute.service(core));
             var accounts = new Accounts(core.credentials, core.creds, () -> { var w = parts.watcher; if (w != null) w.pollNow(); });
