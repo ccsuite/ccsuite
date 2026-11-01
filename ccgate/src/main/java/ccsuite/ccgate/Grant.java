@@ -5,7 +5,7 @@ import datapotter.datahelper.Data;
 
 /**
  * What a caller may do: which model families, how many quota points in all and per UTC day for each, until when, and
- * what for. Points: 1 point = 1% of one account's 5-hour window (see Pricing).
+ * what for. Points: 1 point = 1% of one account's 5-hour window (see quotaweights).
  */
 @Data
 public final class Grant extends Grant_A {

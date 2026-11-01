@@ -1,6 +1,7 @@
 package ccsuite.ccgate;
 
 import module java.base;
+import ccsuite.quotaweights.QuotaWeights;
 import module java.net.http;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.sun.net.httpserver.HttpExchange;
@@ -16,10 +17,10 @@ public final class Forwarder {
     final Accounts accounts;
     final Ledger ledger;
     final Spend spend;
-    final Pricing pricing;
+    final QuotaWeights weights;
 
-    public Forwarder(Accounts accounts, Ledger ledger, Spend spend, Pricing pricing) {
-        this.accounts = accounts; this.ledger = ledger; this.spend = spend; this.pricing = pricing;
+    public Forwarder(Accounts accounts, Ledger ledger, Spend spend, QuotaWeights weights) {
+        this.accounts = accounts; this.ledger = ledger; this.spend = spend; this.weights = weights;
     }
 
     public void forward(HttpExchange ex, Call call, ObjectNode body, byte[] raw) throws IOException, InterruptedException {
@@ -60,7 +61,7 @@ public final class Forwarder {
             var sse = r.headers().firstValue("content-type").orElse("").contains("event-stream");
             var a = UsageTee.pump(in, out, sse);
             var model = a.model() != null ? a.model() : call.modelAsked();
-            var cost = pricing.cost(model, a.usage());
+            var cost = a.usage().cost(weights, model);
             e.model(model).family(cost.family()).usage(a.usage()).messageId(a.messageId()).stopReason(a.stopReason())
                     .points(round(cost.points())).dollars(round(cost.dollars()));
             e.outcome(r.statusCode() / 100 == 2 ? "ok" : "error");

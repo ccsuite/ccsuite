@@ -16,6 +16,12 @@
     </properties>
 
     <dependencies>
+        <!-- what a token weighs against the 5-hour quota: one table, shared with cclocalusagestats -->
+        <dependency>
+            <groupId>io.github.ccsuite</groupId>
+            <artifactId>ccsuite-quotaweights</artifactId>
+            <version>1.0</version>
+        </dependency>
         <dependency>
             <groupId>io.github.ccsuite</groupId>
             <artifactId>ccsuite-localserver</artifactId>

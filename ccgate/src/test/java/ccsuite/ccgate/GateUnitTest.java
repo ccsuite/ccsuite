@@ -1,23 +1,34 @@
 package ccsuite.ccgate;
 
 import module java.base;
+import ccsuite.quotaweights.QuotaWeights;
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 class GateUnitTest {
 
-    final Pricing pricing = Pricing.standard();
+    final QuotaWeights weights = QuotaWeights.standard();
 
     @Test
     void measuredCallsCostOnePointPerMeasuredInterval() {
-        assertEquals(1.0, pricing.cost("claude-sonnet-5-5", new Usage().inputTokens(116_415)).points(), 0.01);
-        assertEquals(1.0, pricing.cost("claude-sonnet-5-5", new Usage().outputTokens(24_995)).points(), 0.01);
-        assertEquals(1.0, pricing.cost("claude-haiku-5-5", new Usage().inputTokens(1_876_324)).points(), 0.02);
-        assertEquals(1.0, pricing.cost("claude-opus-5-5", new Usage().inputTokens(89_924)).points(), 0.01);
-        assertEquals(1.0, pricing.cost("claude-sonnet-5-5", new Usage().cacheReadInputTokens(4_615_260)).points(), 0.01);
-        assertEquals("haiku", pricing.family("claude-haiku-4-5-20251001"));
-        assertEquals("unknown", pricing.family("some-new-model"));
-        assertTrue(pricing.cost("some-new-model", new Usage().inputTokens(1000)).points() > 0);
+        assertEquals(1.0, new Usage().inputTokens(116_415).cost(weights, "claude-sonnet-5-5").points(), 0.01);
+        assertEquals(1.0, new Usage().outputTokens(24_995).cost(weights, "claude-sonnet-5-5").points(), 0.01);
+        assertEquals(1.0, new Usage().inputTokens(1_876_324).cost(weights, "claude-haiku-5-5").points(), 0.02);
+        assertEquals(1.0, new Usage().inputTokens(89_924).cost(weights, "claude-opus-5-5").points(), 0.01);
+        assertEquals(1.0, new Usage().cacheReadInputTokens(4_615_260).cost(weights, "claude-sonnet-5-5").points(), 0.01);
+        assertEquals("haiku", weights.family("claude-haiku-4-5-20251001"));
+        assertEquals("unknown", weights.family("some-new-model"));
+        assertTrue(new Usage().inputTokens(1000).cost(weights, "some-new-model").points() > 0);
+    }
+
+    @Test
+    void aCacheWriteNotSplitCountsAsFiveMinutes() {
+        var unsplit = new Usage().cacheCreationInputTokens(1000).cost(weights, "claude-sonnet-5-5");
+        var split = new Usage().cacheCreation5m(1000).cost(weights, "claude-sonnet-5-5");
+        var asInput = new Usage().inputTokens(1250).cost(weights, "claude-sonnet-5-5");
+        assertEquals(split.points(), unsplit.points(), 1e-12);
+        assertEquals(asInput.points(), unsplit.points(), 1e-9, "a 5-minute write weighs 1.25 times input");
+        assertTrue(new Usage().cacheCreation1h(1000).cost(weights, "claude-sonnet-5-5").points() > unsplit.points());
     }
 
     @Test

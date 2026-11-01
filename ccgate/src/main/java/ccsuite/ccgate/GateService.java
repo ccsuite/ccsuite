@@ -1,6 +1,7 @@
 package ccsuite.ccgate;
 
 import module java.base;
+import ccsuite.quotaweights.QuotaWeights;
 
 /** The gate as something a host switches on and off. Ledger files older than the retention are removed at each start. */
 public final class GateService {
@@ -29,8 +30,8 @@ public final class GateService {
         var days = Math.min(Math.max(retentionDays, 1), MAX_RETENTION_DAYS);
         ledger.prune(days);
         var spend = Spend.from(ledger, days);
-        var pricing = Pricing.standard();
-        var s = new GateServer(port, GrantBook.open(), new Policy(spend), new Forwarder(open = accounts.get(), ledger, spend, pricing), ledger, pricing).approver(approver);
+        var weights = QuotaWeights.standard();
+        var s = new GateServer(port, GrantBook.open(), new Policy(spend), new Forwarder(open = accounts.get(), ledger, spend, weights), ledger, weights).approver(approver);
         s.start();
         server = s;
         this.port = port;

@@ -1,6 +1,7 @@
 package ccsuite.ccgate;
 
 import module java.base;
+import ccsuite.quotaweights.QuotaWeights;
 import module jdk.httpserver;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
@@ -15,12 +16,12 @@ public final class GateServer {
     final Policy policy;
     final Forwarder forwarder;
     final Ledger ledger;
-    final Pricing pricing;
+    final QuotaWeights weights;
     Admission admission;
     HttpServer server;
 
-    public GateServer(int port, GrantBook book, Policy policy, Forwarder forwarder, Ledger ledger, Pricing pricing) {
-        this.port = port; this.book = book; this.policy = policy; this.forwarder = forwarder; this.ledger = ledger; this.pricing = pricing;
+    public GateServer(int port, GrantBook book, Policy policy, Forwarder forwarder, Ledger ledger, QuotaWeights weights) {
+        this.port = port; this.book = book; this.policy = policy; this.forwarder = forwarder; this.ledger = ledger; this.weights = weights;
     }
 
     /** Who may say yes to a caller with an unknown key; without one such a call is refused at once. */
@@ -88,6 +89,6 @@ public final class GateServer {
         return new Call().key(key).keyFingerprint(fp).grant(grant).keyRef(grant == null ? null : grant.key(fp).orElse(null))
                 .session(h.getFirst("x-claude-code-session-id")).agent(h.getFirst("x-claude-code-agent-id"))
                 .project(h.getFirst("x-ccgate-project")).job(h.getFirst("x-ccgate-job")).modelAsked(model)
-                .family(model == null ? "none" : pricing.family(model)).stream(body != null && body.path("stream").asBoolean(false));
+                .family(model == null ? "none" : weights.family(model)).stream(body != null && body.path("stream").asBoolean(false));
     }
 }

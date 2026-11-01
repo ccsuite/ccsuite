@@ -1,6 +1,7 @@
 package ccsuite.ccgate;
 
 import module java.base;
+import ccsuite.quotaweights.QuotaWeights;
 import module java.net.http;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;
@@ -31,8 +32,8 @@ class GateServerAdmissionTest {
     GateServer start(Approver approver) throws IOException {
         var book = new GrantBook(dir.resolve("grants.json"));
         var ledger = new Ledger(dir.resolve("ledger"));
-        var pricing = Pricing.standard();
-        gate = new GateServer(port, book, new Policy(Spend.from(ledger, 1)), null, ledger, pricing).approver(approver);
+        var weights = QuotaWeights.standard();
+        gate = new GateServer(port, book, new Policy(Spend.from(ledger, 1)), null, ledger, weights).approver(approver);
         gate.start();
         return gate;
     }
