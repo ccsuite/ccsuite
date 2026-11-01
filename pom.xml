@@ -24,6 +24,7 @@
         <module>ccacc</module>
         <module>oauth</module>
         <module>chattracker</module>
+        <module>cclocalusagestats</module>
     </modules>
 
     <!-- The private proxy lives in its own private repository; when its folder sits here the reactor builds it too. -->
