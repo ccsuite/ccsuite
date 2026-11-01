@@ -18,6 +18,7 @@ public final class GateServer {
     final Ledger ledger;
     final QuotaWeights weights;
     Admission admission;
+    PurposeCheck purpose;
     HttpServer server;
 
     public GateServer(int port, GrantBook book, Policy policy, Forwarder forwarder, Ledger ledger, QuotaWeights weights) {
@@ -27,6 +28,12 @@ public final class GateServer {
     /** Who may say yes to a caller with an unknown key; without one such a call is refused at once. */
     public GateServer approver(Approver approver) {
         admission = approver == null ? null : new Admission(approver, book, Admission.WAIT);
+        return this;
+    }
+
+    /** The after-the-fact purpose check for person grants; null for none. */
+    public GateServer purpose(PurposeCheck p) {
+        purpose = p;
         return this;
     }
 
@@ -68,8 +75,13 @@ public final class GateServer {
                 refuse(ex, call, refusal.get());
                 return;
             }
-            if (body != null) BodyRewrite.prepare(body, call.grant());
+            if (body != null) {
+                BodyRewrite.prepare(body, call.grant());
+                var note = purpose == null ? null : purpose.noteFor(call);
+                if (note != null) BodyRewrite.addNote(body, note);
+            }
             forwarder.forward(ex, call, body, raw);
+            if (purpose != null) purpose.after(call, body);
         } catch (Exception e) {
             try { Replies.error(ex, 502, "gate error: " + e.getMessage()); } catch (Exception ignored) { }
         }

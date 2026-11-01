@@ -26,6 +26,7 @@ final class GateRoute {
     static int serve(Flags f) throws Exception {
         var port = Integer.parseInt(f.get("port", String.valueOf(GateService.DEFAULT_PORT)));
         var gate = service(new Core());
+        gate.onFlag(fl -> System.err.println("ccgate: purpose flag on grant " + fl.grant() + " (session " + fl.session() + "): " + fl.reason()));
         gate.start(port, Integer.parseInt(f.get("keep-days", String.valueOf(GateService.RETENTION_DAYS))));
         System.out.println("ccgate on http://127.0.0.1:" + port + " (ledger " + GateHome.ledger() + "); Ctrl+C stops");
         Thread.currentThread().join();

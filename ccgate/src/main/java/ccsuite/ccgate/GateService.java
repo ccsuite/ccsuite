@@ -11,6 +11,7 @@ public final class GateService {
     final Supplier<Accounts> accounts;
     GateServer server;
     Approver approver;
+    Consumer<PurposeCheck.Flag> onFlag;
     Accounts open;
     int port;
 
@@ -24,6 +25,12 @@ public final class GateService {
         return this;
     }
 
+    /** Told about every off-purpose verdict (the tray in ccacc, the console headless); set before start. */
+    public synchronized GateService onFlag(Consumer<PurposeCheck.Flag> c) {
+        this.onFlag = c;
+        return this;
+    }
+
     public synchronized void start(int port, int retentionDays) throws IOException {
         if (server != null) return;
         var ledger = Ledger.standard();
@@ -31,7 +38,8 @@ public final class GateService {
         ledger.prune(days);
         var spend = Spend.from(ledger, days);
         var weights = QuotaWeights.standard();
-        var s = new GateServer(port, GrantBook.open(), new Policy(spend), new Forwarder(open = accounts.get(), ledger, spend, weights), ledger, weights).approver(approver);
+        var s = new GateServer(port, GrantBook.open(), new Policy(spend), new Forwarder(open = accounts.get(), ledger, spend, weights), ledger, weights).approver(approver)
+                .purpose(new PurposeCheck(new HaikuJudge(open, weights), ledger).onFlag(onFlag));
         s.start();
         server = s;
         this.port = port;

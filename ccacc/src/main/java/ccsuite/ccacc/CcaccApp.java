@@ -40,7 +40,7 @@ public final class CcaccApp extends Application {
             bridge.readings = ReadingsLog.standard();
             parts = new Parts(core, store, store.load(), bridge,
                     new LocalServerService(core.swap, core.store, core.live, core.usage, core.oauth),
-                    GateRoute.service(core).approver(new FxApprover()));
+                    GateRoute.service(core).approver(new FxApprover()).onFlag(this::flagged));
             var accounts = new Accounts(core.credentials, core.creds, () -> { var w = parts.watcher; if (w != null) w.pollNow(); });
             control = ControlServer.start(Control.defaultFile(), new Commands(accounts, store, parts, core.swap)::run);
             var items = new TrayItems(parts, bridge, this::quit);
@@ -64,6 +64,13 @@ public final class CcaccApp extends Application {
             e.printStackTrace();
             quit();
         }
+    }
+
+    /** An off-purpose verdict from the gate's purpose check: a tray message, so the owner sees it and decides. */
+    void flagged(ccsuite.ccgate.PurposeCheck.Flag f) {
+        var t = tray;
+        if (t != null) t.warning("ccgate: outside a grant's purpose", "Grant '" + f.grant() + "': " + f.reason());
+        System.err.println("ccgate: purpose flag on grant " + f.grant() + " (session " + f.session() + "): " + f.reason());
     }
 
     void quit() {

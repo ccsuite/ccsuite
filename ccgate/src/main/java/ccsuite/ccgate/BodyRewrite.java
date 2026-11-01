@@ -46,6 +46,13 @@ public final class BodyRewrite {
         return JSON.writeValueAsBytes(copy);
     }
 
+    /** A note from the gate at the end of the system prompt, after everything the caller sent, so the cached prefix stays. */
+    public static void addNote(ObjectNode req, String note) {
+        var sys = systemArray(req);
+        sys.add(text(note));
+        req.set("system", sys);
+    }
+
     static ArrayNode systemArray(ObjectNode req) {
         var s = req.get("system");
         if (s instanceof ArrayNode a) return a;

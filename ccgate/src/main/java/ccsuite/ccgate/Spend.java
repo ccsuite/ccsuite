@@ -20,7 +20,8 @@ public final class Spend {
     }
 
     public void add(LedgerEntry e) {
-        if (e.grant() == null || e.points() == null || e.points() == 0) return;
+        // The purpose check is the owner's overhead: on the record under the grant, but not charged to its budget.
+        if (e.grant() == null || e.points() == null || e.points() == 0 || "purpose-check".equals(e.outcome())) return;
         var k = e.grant() + "/" + e.family();
         total.merge(k, e.points(), Double::sum);
         rollDay();

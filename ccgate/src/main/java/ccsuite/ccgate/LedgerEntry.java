@@ -44,6 +44,9 @@ public final class LedgerEntry extends LedgerEntry_A {
     @JsonProperty("message_id") String messageId;
     @JsonProperty("request_id") String requestId;
     String stopReason;
+    /** The purpose check's verdict (yes, no, unchecked) and its one-line reason; never the turn itself. */
+    String purpose;
+    String purposeReason;
 
     public LedgerEntry usage(Usage u) {
         return inputTokens(u.inputTokens()).outputTokens(u.outputTokens()).cacheCreationInputTokens(u.cacheCreationInputTokens())
