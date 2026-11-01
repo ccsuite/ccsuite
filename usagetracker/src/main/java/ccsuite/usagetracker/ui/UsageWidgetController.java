@@ -115,9 +115,20 @@ public class UsageWidgetController {
      * Initialize the controller after FXML loading.
      * Sets up event handlers for the interactive elements.
      */
+    /**
+     * WORKAROUND: on macOS 26 JavaFX 23 dies with OutOfMemoryError while it reads Apple Color Emoji
+     * (PrismFontFile.buildSbixStrikeTables) to size a label that holds an emoji, which kills the window's thread
+     * and leaves it empty. Plain letters on macOS only; delete this when a fixed JavaFX runtime is in use.
+     */
+    private static final boolean MAC = System.getProperty("os.name", "").toLowerCase().contains("mac");
+
     @FXML
     public void initialize() {
         // Root container will be set by parent after loading
+        if (MAC) {
+            if (pingButton != null) pingButton.setText("P");
+            if (refreshButton != null) refreshButton.setText("R");
+        }
 
         // Setup click handlers for button labels - ensure UI runs on JavaFX thread
         if (refreshButton != null) {
@@ -178,7 +189,7 @@ public class UsageWidgetController {
         // Update active status checkbox
         var isActive = accountUsage.credential().active();
         if (activeCheckbox != null) {
-            activeCheckbox.setText(isActive ? "✔" : "✘");
+            activeCheckbox.setText(MAC ? (isActive ? "+" : "-") : (isActive ? "✔" : "✘")); // MAC: see the workaround note at the top of initialize()
             activeCheckbox.setStyle("-fx-text-fill: " + (isActive ? "#44FF44" : "#FF8A80") + "; -fx-font-size: 8px;");
         }
 
