@@ -23,7 +23,6 @@ import java.util.regex.Pattern;
 
 import static luvml.E.*;
 import static luvml.A.*;
-import static luvml.T.text;
 import static luvml.Frags.*;
 import static luvml.ProcessingInstruction.xmlDeclaration;
 import static ccsuite.chatdownloader.ConversationDSL.*;
