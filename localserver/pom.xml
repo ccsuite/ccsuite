@@ -167,7 +167,7 @@
                     <plugin>
                         <groupId>io.github.jarrunner</groupId>
                         <artifactId>jr-maven-plugin</artifactId>
-                        <version>1.3.0</version>
+                        <version>1.6.0</version>
                         <executions>
                             <execution>
                                 <id>ccls</id>
