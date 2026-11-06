@@ -43,6 +43,7 @@ final class Commands {
                 case "mode" -> mode(args);
                 case "part" -> part(args);
                 case "account" -> account(args);
+                case "gate" -> gate(args);
                 default -> Reply.error("unknown command " + args.get(0));
             };
         } catch (IllegalArgumentException | IllegalStateException e) {
@@ -75,6 +76,15 @@ final class Commands {
         for (var i = 1; i < args.size(); i++) if (args.get(i).equals("--id") && i + 1 < args.size()) id = args.get(++i);
         var cred = swap.register(Optional.ofNullable(id));
         return Reply.ok("Registered " + cred.id() + " (" + cred.email() + ")");
+    }
+
+    // ---- issuing: the owner approves at a window before a grant or a key exists
+
+    Reply gate(List<String> args) throws java.io.IOException {
+        var rest = args.subList(1, args.size());
+        if (!ccsuite.ccgate.GrantCommands.issues(rest)) throw new IllegalArgumentException("only issuing goes through the app: " + rest);
+        var out = new ccsuite.ccgate.GrantCommands(ccsuite.ccgate.GrantBook.open(), IssueWindow::ask).run(rest);
+        return Reply.ok(out);
     }
 
     // ---- mode and parts

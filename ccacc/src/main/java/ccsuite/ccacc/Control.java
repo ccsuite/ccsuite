@@ -27,7 +27,7 @@ final class Control {
     record Endpoint(int port, String token, long pid) {}
 
     /** Commands that change state and so go to the running app when there is one. The rest read and run alone. */
-    static final java.util.Set<String> STATE_CHANGING = java.util.Set.of("switch", "register", "mode", "part", "account");
+    static final java.util.Set<String> STATE_CHANGING = java.util.Set.of("switch", "register", "mode", "part", "account", "lanes");
 
     static boolean changesState(String[] args) { return args.length > 0 && STATE_CHANGING.contains(args[0]); }
 

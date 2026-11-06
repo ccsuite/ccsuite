@@ -17,6 +17,7 @@ final class GateRoute {
                 System.out.println(RelayConfig.standard().run(list.subList(2, list.size())));
                 return 0;
             }
+            if (list.size() >= 3 && list.get(0).equals("gate") && GrantCommands.issues(list.subList(1, list.size()))) return issueViaApp(list);
             if (list.size() >= 2 && list.get(0).equals("gate") && list.get(1).equals("serve")) return serve(new Flags(list.subList(2, list.size())));
             var out = GateCli.run(list.isEmpty() ? "" : list.get(0), list.size() > 1 ? list.subList(1, list.size()) : List.of());
             if (!out.isEmpty()) System.out.println(out);
@@ -25,6 +26,21 @@ final class GateRoute {
             System.err.println("Error: " + e.getMessage());
             return 1;
         }
+    }
+
+    /** Issuing needs the owner's yes at a window, so it is done by the running ccacc, never by this command line alone. */
+    static int issueViaApp(List<String> list) {
+        var reply = ControlClient.send(Control.defaultFile(), list);
+        if (reply.isEmpty()) {
+            System.err.println("Error: issuing needs your approval at the ccacc window, and ccacc is not running. Start ccacc and run the command again.");
+            return 1;
+        }
+        if (reply.get().ok()) {
+            System.out.println(reply.get().message());
+            return 0;
+        }
+        System.err.println("Error: " + reply.get().message());
+        return 1;
     }
 
     static int serve(Flags f) throws Exception {

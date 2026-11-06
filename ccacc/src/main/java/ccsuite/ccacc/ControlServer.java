@@ -74,6 +74,7 @@ final class ControlServer implements AutoCloseable {
                 reply = token.equals(req.token()) && req.args() != null && !req.args().isEmpty()
                         ? handler.apply(req.args()) : Reply.error("refused");
             } catch (Exception e) {
+                if (e.getMessage() == null) e.printStackTrace();   // an exception with no message says nothing; the trace goes to the app's own stderr
                 reply = Reply.error("ccacc: " + (e.getMessage() == null ? e.toString() : e.getMessage()));
             }
             var out = conn.getOutputStream();

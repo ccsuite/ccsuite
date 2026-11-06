@@ -23,5 +23,7 @@ public class CcaccSettings {
     /** The outward link to the relay (phase 2): remote callers reach the gate through it; off until switched on. */
     boolean relay = false;
     int relayWorkers = 4;
+    /** The three ports with modes (pclaude, fclaude, pfclaude) over the paid and the free lane, and the routing settings; off until switched on. */
+    LaneSettings lanes = new LaneSettings();
     WatchMode watchMode = WatchMode.AUTO;
 }

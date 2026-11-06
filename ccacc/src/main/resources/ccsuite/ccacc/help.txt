@@ -1,6 +1,6 @@
 ccacc: Claude Code accounts (ccu, cswap and ccls in one)
   ccacc                       resident app: tray menu, account watcher, usage widget, local proxy
-  ccacc app [--no-watch] [--no-widget] [--no-server] [--no-gate]
+  ccacc app [--no-watch] [--no-widget] [--no-server] [--no-gate] [--no-lanes]
   ccacc tui                   usage view in the terminal
   ccacc serve [--port N]      local proxy alone, no tray
   ccacc install [--start-at-login]   put this exe in your programs folder and on the PATH
@@ -11,7 +11,11 @@ ccacc: Claude Code accounts (ccu, cswap and ccls in one)
   ccacc cswap <command>                     the old cswap, same commands (also without the word cswap)
   ccacc ccls [--port N] [--no-tray]         the old ccls, same options
   ccacc mode auto|locked|paused    what the watcher may do on its own (changes the running app)
+  ccacc free [--overall] [--json] [--refresh]   usage of the free accounts: ALL first, then each (from the running app, no new probes)
+  ccacc calls [--job TAG] [--since 30m] [--by job|session|account|model] [--json]   what the free lane served and cost (call log of the proxy)
   ccacc part watch|widget|server|gate on|off    turn a part of the app on or off
+  ccacc lanes                 the two lanes, each on its own port and never mixed: pclaude 8681 (the paid accounts, every model) and fclaude 8686 (the free accounts, haiku and sonnet), and their state
+  ccacc lanes on|off | set <setting> <value> | free-accounts <ids|all>    switch the lanes, tune them (chatReuse off|on|fresh, paidPin <ACCOUNT|off>, perAccountSlots); start Claude Code on them with pclaude.bat and fclaude.bat
   ccacc gate grant|key ...    keys and grants for the gate (127.0.0.1:7787): models, budgets in quota points, expiry
   ccacc gate serve [--port N] the gate alone, no tray
   ccacc ledger [--by ...] [--job <tag>] [--tail]    what went through the gate: calls, tokens, quota points

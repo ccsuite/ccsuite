@@ -48,6 +48,18 @@
         </dependency>
         <dependency>
             <groupId>io.github.ccsuite</groupId>
+            <artifactId>ccsuite-webclient</artifactId>
+            <version>1.0</version>
+            <exclusions><exclusion><groupId>org.openjfx</groupId><artifactId>*</artifactId></exclusion></exclusions>
+        </dependency>
+        <dependency>
+            <groupId>io.github.ccsuite</groupId>
+            <artifactId>ccsuite-webproxy</artifactId>
+            <version>1.0</version>
+            <exclusions><exclusion><groupId>org.openjfx</groupId><artifactId>*</artifactId></exclusion></exclusions>
+        </dependency>
+        <dependency>
+            <groupId>io.github.ccsuite</groupId>
             <artifactId>ccsuite-localserver</artifactId>
             <version>1.0</version>
             <exclusions><exclusion><groupId>org.openjfx</groupId><artifactId>*</artifactId></exclusion></exclusions>

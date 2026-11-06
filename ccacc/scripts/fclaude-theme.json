@@ -1,0 +1,25 @@
+{
+  "name": "fclaude (green)",
+  "base": "dark-ansi",
+  "overrides": {
+    "claude": "#7bd88f",
+    "claudeShimmer": "#b6f0c2",
+    "promptBorder": "#7bd88f",
+    "promptBorderShimmer": "#b6f0c2",
+    "permission": "#5fd38d",
+    "permissionShimmer": "#9fe8bb",
+    "suggestion": "#8fe3a8",
+    "success": "#7bd88f",
+    "planMode": "#5fd38d",
+    "autoAccept": "#7bd88f",
+    "rate_limit_fill": "#5fd38d",
+    "briefLabelClaude": "#7bd88f",
+    "briefLabelYou": "#b6f0c2",
+    "userMessageBackground": "#1f5133",
+    "userMessageBackgroundHover": "#276741",
+    "bashMessageBackgroundColor": "#26603c",
+    "memoryBackgroundColor": "#2d6e46",
+    "selectionBg": "#2f7a4d",
+    "composerSidebarBackground": "#173d28"
+  }
+}

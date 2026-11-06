@@ -37,6 +37,8 @@ public final class CcaccMain {
             case SWAP -> System.exit(swap(rest));
             case CONTROL -> System.exit(control(rest));
             case GATE -> System.exit(GateRoute.run(args));
+            case FREE -> System.exit(FreeCli.run(rest));
+            case CALLS -> System.exit(CallsCli.run(rest));
         }
     }
 
@@ -55,6 +57,7 @@ public final class CcaccMain {
         var args = java.util.List.of(rest);
         var reply = ControlClient.send(Control.defaultFile(), args);
         if (reply.isPresent()) return print(reply.get());
+        if (LaneCommands.handles(args)) return print(new LaneCommands(new CcaccSettingsStore(), null).run(args));
         try {
             var manager = new ccsuite.base.config.CredentialsManager();
             var accounts = new Accounts(manager, manager.credentialsFileExists() ? manager.load() : new ccsuite.base.model.CCAPIsCredentials(), () -> { });

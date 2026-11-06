@@ -17,7 +17,7 @@ import java.util.function.Supplier;
 import static ccsuite.ccacc.TrayText.*;
 
 /**
- * The simple window, in two tabs. Accounts: the accounts with their usage, a button to switch to the chosen one,
+ * The simple window, in three tabs (the third, Clients, is ClientsPane: who calls the gate and the means to rein them in). Accounts: the accounts with their usage, a button to switch to the chosen one,
  * the watcher's mode, the on/off switches of the parts, and the way into the account manager. Total: all accounts
  * as one (the averages the taskbar card shows on its ALL page). The tray menu stays for the quick things.
  * Keyboard first: Up and Down choose, Enter switches, Esc closes. Redrawn when the watcher polls and when it is
@@ -40,6 +40,7 @@ final class MainWindow {
     final ToggleGroup modes = new ToggleGroup();
     final CheckBox watch = new CheckBox("Account watcher"), widget = new CheckBox("Usage widget"),
             card = new CheckBox("Card in the taskbar"), server = new CheckBox("Local server");
+    final ClientsPane clients;
     AccountsWindow manager;
     boolean redrawing;
 
@@ -55,12 +56,15 @@ final class MainWindow {
         band.setPadding(new Insets(10, 14, 10, 14));
         band.setStyle("-fx-background-color: " + color + ";");
 
-        var tabs = new TabPane(tab("Accounts", accountsPage()), tab("Total", totalPage()));
-        var scene = new Scene(new VBox(band, tabs), 600, 520);
+        clients = new ClientsPane(parts);
+        var tabs = new TabPane(tab("Accounts", accountsPage()), tab("Total", totalPage()), tab("Clients", clients));
+        var scene = new Scene(new VBox(band, tabs), 780, 560);
         scene.setOnKeyPressed(e -> {
             if (e.getCode() == KeyCode.ESCAPE) stage.hide();
             else if (e.getCode() == KeyCode.ENTER && accounts.isFocused()) switchToChosen();
         });
+        stage.setOnShown(e -> clients.start());
+        stage.setOnHidden(e -> clients.stop());
         stage.setTitle("ccacc");
         stage.getIcons().setAll(FxImages.windowIcons());
         stage.setScene(scene);

@@ -25,6 +25,8 @@ final class Parts {
     UsageWatcher watcher;
     UsageWidget widget;
     ccsuite.ccrelay.RelayAgent relay;
+    /** The ports with modes over the paid and the free lane; set by the app once the gauges exist, null in tests. */
+    LaneHost lanes;
     String serverProblem, gateProblem, relayProblem;
 
     Parts(Core core, CcaccSettingsStore store, CcaccSettings settings, WatchBridge bridge, LocalServerService server, GateService gate) {
@@ -171,12 +173,14 @@ final class Parts {
         if (settings.server() && !args.contains("--no-server")) startServer();
         if (settings.gate() && !args.contains("--no-gate")) startGate();
         if (settings.relay() && !args.contains("--no-relay")) startRelay();
+        if (settings.lanes().enabled() && !args.contains("--no-lanes") && lanes != null) lanes.start();
     }
 
     void stopAll() {
         stopWatch();
         stopWidget();
         stopServer();
+        if (lanes != null) lanes.stop();
         stopRelay();
         stopGate();
     }

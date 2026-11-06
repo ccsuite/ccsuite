@@ -42,8 +42,9 @@ class TrayItemsTest {
         var i = items(dir, new WatchBridge(), false);
         var t = texts(i.build());
         assertEquals("account watcher is off", i.status());
-        assertTrue(t.contains("✗ Account watcher"));
+        assertTrue(texts(i.partItems()).contains("✗ Account watcher"), "the switches are behind the window now");
         assertTrue(t.stream().noneMatch(s -> s.startsWith("Switch to")));
+        assertTrue(t.contains("Accounts, parts and servers…"));
         assertTrue(t.contains("Quit ccacc"));
     }
 
@@ -59,11 +60,16 @@ class TrayItemsTest {
         var t = texts(i.build());
         assertEquals("ann  5h 40%  week 50% (avg 100%)  ·  auto", i.status());
         assertEquals("Open ccacc window", t.getFirst());
-        assertEquals("⚠ Switch to dan now (recommended)", t.get(2));
-        assertTrue(t.contains("Switch to dan   80% weekly free, avg 40%"));
-        assertTrue(t.stream().noneMatch(s -> s.startsWith("Switch to ann")));
-        assertTrue(t.contains("● Auto: switch and rebalance on its own"));
+        assertTrue(t.contains("⚠ Switch to dan now (recommended)"));
+        assertTrue(t.contains("● Auto: switch and rebalance on its own"), "the mode is flat in the menu, the current one marked");
         assertTrue(t.contains("○ Locked: stay on this account, still warn"));
+        assertTrue(t.contains("○ Paused: do not poll at all"));
+        assertTrue(t.stream().filter(s -> !s.equals("---")).count() <= 12, "the menu stays short: " + t);
+        var behind = texts(i.switchItems());
+        assertTrue(behind.contains("Switch to dan   80% weekly free, avg 40%"));
+        assertTrue(behind.stream().noneMatch(s -> s.startsWith("Switch to ann")));
+        assertTrue(texts(i.modeItems()).contains("● Auto: switch and rebalance on its own"));
+        assertTrue(texts(i.modeItems()).contains("○ Locked: stay on this account, still warn"));
     }
 
     @Test void choosingAModeIsRememberedInTheSettingsFile(@TempDir Path dir) {
@@ -71,6 +77,8 @@ class TrayItemsTest {
         i.parts.mode(WatchMode.LOCKED);
         assertEquals(WatchMode.LOCKED, i.parts.watcher.mode());
         assertEquals(WatchMode.LOCKED, i.parts.store.load().watchMode());
+        assertTrue(texts(i.modeItems()).contains("● Locked: stay on this account, still warn"));
         assertTrue(texts(i.build()).contains("● Locked: stay on this account, still warn"));
+        assertTrue(texts(i.build()).contains("○ Auto: switch and rebalance on its own"));
     }
 }
