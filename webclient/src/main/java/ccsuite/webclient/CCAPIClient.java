@@ -60,6 +60,15 @@ public class CCAPIClient {
         return url;
     }
 
+    /** The completion body. The model goes here, not into the chat: a chat created with a model is still answered by the account's default one. */
+    static java.util.Map<String, String> payload(String message, String model) {
+        var payload = new java.util.LinkedHashMap<String, String>();
+        payload.put("prompt", message);
+        payload.put("timezone", "UTC");
+        if (model != null && !model.isBlank()) payload.put("model", model);
+        return payload;
+    }
+
     private String getUserAgent(CCAPICredential credential) {
         return (credential.ua() != null && !credential.ua().isEmpty())
                 ? credential.ua()
@@ -207,15 +216,17 @@ public class CCAPIClient {
      * Returns the raw event stream response
      */
     public String sendMessage(CCAPICredential credential, String conversationId, String message) throws IOException {
+        return sendMessage(credential, conversationId, message, null);
+    }
+
+    /** Like {@link #sendMessage(CCAPICredential, String, String)}, answered by the given model (null = the account's default). */
+    public String sendMessage(CCAPICredential credential, String conversationId, String message, String model) throws IOException {
         var baseUrl = getBaseUrl(credential);
         var url = String.format("%s/api/organizations/%s/chat_conversations/%s/completion",
                 baseUrl, credential.orgId(), conversationId);
 
         // Build JSON properly using Jackson (handles all escaping automatically)
-        var payload = java.util.Map.of(
-            "prompt", message,
-            "timezone", "UTC"
-        );
+        var payload = payload(message, model);
         var json = objectMapper.writeValueAsString(payload);
 
         var requestBody = RequestBody.create(json, MediaType.get("application/json"));
@@ -258,15 +269,18 @@ public class CCAPIClient {
      */
     public String sendMessageStreaming(CCAPICredential credential, String conversationId,
                                       String message, Consumer<String> onText) throws IOException {
+        return sendMessageStreaming(credential, conversationId, message, null, onText);
+    }
+
+    /** Like the four-argument form, answered by the given model (null = the account's default model, which is what the web chat uses when no model is sent). */
+    public String sendMessageStreaming(CCAPICredential credential, String conversationId,
+                                      String message, String model, Consumer<String> onText) throws IOException {
         var baseUrl = getBaseUrl(credential);
         var url = String.format("%s/api/organizations/%s/chat_conversations/%s/completion",
                 baseUrl, credential.orgId(), conversationId);
 
         // Build JSON properly using Jackson (handles all escaping automatically)
-        var payload = java.util.Map.of(
-            "prompt", message,
-            "timezone", "UTC"
-        );
+        var payload = payload(message, model);
         var json = objectMapper.writeValueAsString(payload);
 
         var requestBody = RequestBody.create(json, MediaType.get("application/json"));
@@ -301,6 +315,80 @@ public class CCAPIClient {
 
             return parser.parse(responseBody.byteStream());
         }
+    }
+
+    /** One reply of a chat in the Messages-style stream: its text and the uuid of the assistant message (the parent of the next message of the same chat). */
+    public record Reply(String text, String uuid, Gauge gauge) { }
+
+    /** The usage gauge a Messages-style reply carries (fractions of the five-hour and weekly windows, steps of 0.01); any part may be null. */
+    public record Gauge(Double fiveHour, Double sevenDay, Long fiveResetsAt) { }
+
+    /**
+     * Sends one message in the Messages-style stream ({@code rendering_mode: messages}), which names the assistant message in {@code message_start};
+     * that uuid is the {@code parent_message_uuid} of the follow-up. {@code parentUuid} is null for the first message of a chat. A follow-up without
+     * its parent is refused at once by the web (HTTP 429 "Rate limited"). Text arrives in {@code onText} (may be null).
+     */
+    public Reply sendTurnStreaming(CCAPICredential credential, String conversationId, String message, String model, String parentUuid,
+                                   Consumer<String> onText) throws IOException {
+        var baseUrl = getBaseUrl(credential);
+        var url = String.format("%s/api/organizations/%s/chat_conversations/%s/completion", baseUrl, credential.orgId(), conversationId);
+        var body = objectMapper.createObjectNode().put("prompt", message).put("timezone", "UTC").put("rendering_mode", "messages");
+        if (model != null && !model.isBlank()) body.put("model", model);
+        if (parentUuid != null) body.put("parent_message_uuid", parentUuid);
+        var request = new Request.Builder()
+                .url(url)
+                .post(RequestBody.create(body.toString(), MediaType.get("application/json")))
+                .addHeader("Cookie", "sessionKey=" + credential.key())
+                .addHeader("User-Agent", getUserAgent(credential))
+                .addHeader("Accept", "text/event-stream")
+                .addHeader("Content-Type", "application/json")
+                .addHeader("Origin", baseUrl)
+                .addHeader("Referer", baseUrl + "/")
+                .build();
+        try (Response response = httpClient.newCall(request).execute()) {
+            if (!response.isSuccessful()) {
+                var errorBody = response.body() != null ? response.body().string() : "";
+                throw new IOException("Failed to send message: HTTP " + response.code() + " - " + errorBody);
+            }
+            if (response.body() == null) throw new IOException("Empty response body");
+            return readReply(response.body().byteStream(), onText);
+        }
+    }
+
+    Reply readReply(java.io.InputStream in, Consumer<String> onText) throws IOException {
+        var text = new StringBuilder();
+        String uuid = null;
+        Gauge gauge = null;
+        try (var reader = new java.io.BufferedReader(new java.io.InputStreamReader(in, java.nio.charset.StandardCharsets.UTF_8))) {
+            for (var line = reader.readLine(); line != null; line = reader.readLine()) {
+                if (!line.startsWith("data:")) continue;
+                var data = line.substring(5).strip();
+                if (data.isEmpty() || data.equals("ping")) continue;
+                com.fasterxml.jackson.databind.JsonNode event;
+                try { event = objectMapper.readTree(data); } catch (IOException e) { continue; }
+                switch (event.path("type").asText()) {
+                    case "message_start" -> uuid = event.path("message").path("uuid").asText(null);
+                    case "content_block_delta" -> {
+                        var piece = event.path("delta").path("text").asText("");
+                        if (!piece.isEmpty()) {
+                            text.append(piece);
+                            if (onText != null) onText.accept(piece);
+                        }
+                    }
+                    case "error" -> throw new IOException("Stream error: " + event.path("error").toString());
+                    case "message_limit" -> {
+                        var windows = event.path("message_limit").path("windows");
+                        if (!windows.isObject()) windows = event.path("windows");
+                        if (windows.isObject()) gauge = new Gauge(
+                            windows.path("5h").hasNonNull("utilization") ? windows.path("5h").get("utilization").asDouble() : null,
+                            windows.path("7d").hasNonNull("utilization") ? windows.path("7d").get("utilization").asDouble() : null,
+                            windows.path("5h").hasNonNull("resets_at") ? windows.path("5h").get("resets_at").asLong() : null);
+                    }
+                    default -> { }
+                }
+            }
+        }
+        return new Reply(text.toString(), uuid, gauge);
     }
 
     /**
