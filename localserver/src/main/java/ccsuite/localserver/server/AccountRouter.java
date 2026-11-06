@@ -77,6 +77,11 @@ public final class AccountRouter {
         }
     }
 
+    /** The lowest weekly pace ({@link AccountUsage#sevenDayAverage()}, 100 = on pace to use the week exactly) over the accounts the proxy may serve from; empty when none is known. */
+    public OptionalDouble weeklyPace() {
+        return servableUsages().values().stream().filter(Objects::nonNull).map(AccountUsage::sevenDayAverage).filter(Objects::nonNull).mapToDouble(Double::doubleValue).min();
+    }
+
     public String lastServed() { return lastServed; }
     public void markServed(String id) { lastServed = id; }
 
