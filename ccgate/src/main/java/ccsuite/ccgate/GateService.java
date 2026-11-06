@@ -12,6 +12,7 @@ public final class GateService {
     GateServer server;
     Approver approver;
     Consumer<PurposeCheck.Flag> onFlag;
+    Clients clients;
     Accounts open;
     int port;
 
@@ -38,10 +39,12 @@ public final class GateService {
         ledger.prune(days);
         var spend = Spend.from(ledger, days);
         var weights = QuotaWeights.standard();
-        var s = new GateServer(port, GrantBook.open(), new Policy(spend), new Forwarder(open = accounts.get(), ledger, spend, weights), ledger, weights).approver(approver)
+        var book = GrantBook.open();
+        var s = new GateServer(port, book, new Policy(spend), new Forwarder(open = accounts.get(), ledger, spend, weights), ledger, weights).approver(approver)
                 .purpose(new PurposeCheck(new HaikuJudge(open, weights), ledger).onFlag(onFlag));
         s.start();
         server = s;
+        clients = new Clients(book, spend, s.activity());
         this.port = port;
     }
 
@@ -50,6 +53,12 @@ public final class GateService {
         server.stop();
         open.close();
         server = null;
+        clients = null;
+    }
+
+    /** The callers and the means to rein them in; null while the gate is off. */
+    public synchronized Clients clients() {
+        return clients;
     }
 
     public synchronized boolean running() {

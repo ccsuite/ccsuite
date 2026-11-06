@@ -6,6 +6,9 @@ import static ccsuite.ccgate.Refusal.of;
 /** Decides whether a call may go out: a known, live key; a live grant; an allowed model; budget and rate left. */
 public final class Policy {
 
+    /** How long a call of a smoothed grant may wait for a free slot before it is refused after all. */
+    static final Duration SMOOTH_MAX = Duration.ofSeconds(30);
+
     final Spend spend;
 
     public Policy(Spend spend) {
@@ -27,6 +30,8 @@ public final class Policy {
         if (g.expired(now)) return of(403, name + " expired at " + g.expires() + ". Ask the provider to extend it.");
         if (k.expires() != null && now.isAfter(Instant.parse(k.expires())))
             return of(403, name + ": this key expired at " + k.expires() + ". Ask for a new key.");
+        if (g.suspended(now))
+            return of(403, name + " is suspended until " + g.bannedUntil() + (g.banReason() == null ? "" : " (" + g.banReason() + ")") + ". Ask the provider.");
         var f = c.family();
         if ("none".equals(f)) return null;
         if (!g.models().contains(f))
@@ -37,7 +42,7 @@ public final class Policy {
         var day = g.daily().get(f);
         if (day != null && spend.today(g.id(), f) >= day)
             return of(429, name + " has spent today's " + f + " budget: " + pts(spend.today(g.id(), f)) + " of " + pts(day) + " points. It renews at 00:00 UTC.");
-        if (!spend.tick(g.id(), g.perMinute()))
+        if (!(g.smooth() ? spend.awaitTick(g.id(), g.perMinute(), SMOOTH_MAX) : spend.tick(g.id(), g.perMinute())))
             return of(429, name + " allows " + g.perMinute() + " requests a minute. Slow down and retry.");
         return null;
     }

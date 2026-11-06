@@ -57,7 +57,8 @@ public final class Forwarder {
         ex.getResponseHeaders().set("x-ccgate-account", id);
         ex.sendResponseHeaders(r.statusCode(), 0);
         var e = readings(entry(call, id, attempt), r).status(r.statusCode());
-        try (var in = r.body(); var out = ex.getResponseBody()) {
+        var bps = call.grant() == null ? 0 : call.grant().throttleBps();
+        try (var in = r.body(); var raw = ex.getResponseBody(); OutputStream out = bps > 0 ? new ThrottledOutput(raw, bps) : raw) {
             var sse = r.headers().firstValue("content-type").orElse("").contains("event-stream");
             var a = UsageTee.pump(in, out, sse);
             var model = a.model() != null ? a.model() : call.modelAsked();

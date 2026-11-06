@@ -50,6 +50,35 @@ public final class Spend {
         }
     }
 
+    /** Like {@link #tick}, but waits for a free slot (up to {@code maxWait}) instead of failing at once. */
+    public boolean awaitTick(String grant, int perMinute, Duration maxWait) {
+        if (perMinute <= 0) return true;
+        var deadline = System.nanoTime() + maxWait.toNanos();
+        while (true) {
+            if (tick(grant, perMinute)) return true;
+            var q = recent.get(grant);
+            long waitMs;
+            synchronized (q) {
+                var first = q.peekFirst();
+                waitMs = first == null ? 50 : Math.max(20, 60_000 - (System.currentTimeMillis() - first) + 5);
+            }
+            var left = (deadline - System.nanoTime()) / 1_000_000;
+            if (left <= 0) return false;
+            try {
+                Thread.sleep(Math.min(waitMs, left));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+    }
+
+    /** Points a grant has spent today over all families. */
+    public double todayAll(String grant) {
+        rollDay();
+        return today.entrySet().stream().filter(e -> e.getKey().startsWith(grant + "/")).mapToDouble(Map.Entry::getValue).sum();
+    }
+
     void rollDay() {
         var d = LocalDate.now(ZoneOffset.UTC).toString();
         if (!d.equals(day)) { day = d; today.clear(); }

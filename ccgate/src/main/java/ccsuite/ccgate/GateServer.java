@@ -17,6 +17,7 @@ public final class GateServer {
     final Forwarder forwarder;
     final Ledger ledger;
     final QuotaWeights weights;
+    final Activity activity = new Activity();
     Admission admission;
     PurposeCheck purpose;
     HttpServer server;
@@ -35,6 +36,10 @@ public final class GateServer {
     public GateServer purpose(PurposeCheck p) {
         purpose = p;
         return this;
+    }
+
+    public Activity activity() {
+        return activity;
     }
 
     public void start() throws IOException {
@@ -70,24 +75,30 @@ public final class GateServer {
                 }
                 call.grant(admitted.grant()).keyRef(admitted.grant().key(call.keyFingerprint()).orElse(null));
             }
-            var refusal = policy.check(call, Instant.now());
-            if (refusal.isPresent()) {
-                refuse(ex, call, refusal.get());
-                return;
+            if (call.grant() != null) activity.begin(call);
+            try {
+                var refusal = policy.check(call, Instant.now());
+                if (refusal.isPresent()) {
+                    refuse(ex, call, refusal.get());
+                    return;
+                }
+                if (body != null) {
+                    BodyRewrite.prepare(body, call.grant());
+                    var note = purpose == null ? null : purpose.noteFor(call);
+                    if (note != null) BodyRewrite.addNote(body, note);
+                }
+                forwarder.forward(ex, call, body, raw);
+                if (purpose != null) purpose.after(call, body);
+            } finally {
+                if (call.grant() != null) activity.end(call);
             }
-            if (body != null) {
-                BodyRewrite.prepare(body, call.grant());
-                var note = purpose == null ? null : purpose.noteFor(call);
-                if (note != null) BodyRewrite.addNote(body, note);
-            }
-            forwarder.forward(ex, call, body, raw);
-            if (purpose != null) purpose.after(call, body);
         } catch (Exception e) {
             try { Replies.error(ex, 502, "gate error: " + e.getMessage()); } catch (Exception ignored) { }
         }
     }
 
     void refuse(HttpExchange ex, Call call, Refusal refusal) throws IOException {
+        activity.refused(call);
         ledger.append(Forwarder.entry(call, null, 0).outcome("refused").status(refusal.status()).reason(refusal.reason()));
         Replies.error(ex, refusal.status(), refusal.reason());
     }
