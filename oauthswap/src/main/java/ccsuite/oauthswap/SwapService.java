@@ -100,7 +100,29 @@ public final class SwapService {
                 .oauthAccount(oauth);
         store.save(account);
         log.info("Registered Claude Code account {} ({})", target.id(), account.email());
+        completeCredential(target, account.organizationUuid());
         return target;
+    }
+
+    /** The login knows the account's organization, so a credential saved without an org id or base URL gets both filled in (the widget showed "no data" without them). Best-effort, like the active flag. */
+    private void completeCredential(CCAPICredential target, String organizationUuid) {
+        if (credentialsXml == null || !credentialsXml.getFileName().toString().endsWith(".json")) return;
+        var needsOrg = (target.orgId() == null || target.orgId().isBlank()) && organizationUuid != null && !organizationUuid.isBlank();
+        var needsUrl = target.ccapiBaseUrl() == null || target.ccapiBaseUrl().isBlank();
+        if (!needsOrg && !needsUrl) return;
+        try {
+            new ccsuite.base.config.CredentialsManager(credentialsXml).update(all -> {
+                var c = all.getById(target.id());
+                if (c == null) return;
+                if (needsOrg) c.orgId(organizationUuid);
+                if (needsUrl) c.ccapiBaseUrl(ccsuite.base.config.AccountEditor.DEFAULT_BASE_URL);
+            });
+            if (needsOrg) target.orgId(organizationUuid);
+            if (needsUrl) target.ccapiBaseUrl(ccsuite.base.config.AccountEditor.DEFAULT_BASE_URL);
+            log.info("Filled in the organization id and base URL of {} from its login", target.id());
+        } catch (Exception e) {
+            log.warn("Could not complete the credential of {}: {}", target.id(), e.toString());
+        }
     }
 
     private CCAPICredential resolveTarget(Optional<String> idOpt, String email) {

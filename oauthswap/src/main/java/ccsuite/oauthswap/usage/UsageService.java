@@ -169,8 +169,13 @@ public final class UsageService {
         }
         lastFallbackAt.put(id, now);
         log.info("{}: trying inference-probe fallback (~9 real tokens)", id);
-        return accountUsageViaProbe(id, active);
+        var u = accountUsageViaProbe(id, active);
+        if (u != null) lastKnownUsage.put(id, u);
+        return u;
     }
+
+    /** The latest reading any caller got for {@code id} (the watcher's or a fallback's), or {@code null} if none yet. No network. */
+    public AccountUsage lastKnown(String id) { return lastKnownUsage.get(id); }
 
     /**
      * Usage for a long-running periodic poller (cswap watch, cclocalserver) — sourced entirely

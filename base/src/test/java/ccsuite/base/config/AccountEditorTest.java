@@ -15,6 +15,13 @@ class AccountEditorTest {
         return all;
     }
 
+    @Test void addGivesTheDefaultBaseUrlUnlessOneIsPassed() {
+        var all = one();
+        assertEquals(AccountEditor.DEFAULT_BASE_URL, all.getById("a").ccapiBaseUrl());
+        AccountEditor.add(all, Map.of("id", "b", "name", "B", "email", "b@example.org", "ccapiBaseUrl", "claude.example"));
+        assertEquals("claude.example", all.getById("b").ccapiBaseUrl());
+    }
+
     @Test void addNeedsIdNameAndEmailAndANewId() {
         var all = one();
         assertThrows(IllegalArgumentException.class, () -> AccountEditor.add(all, Map.of("name", "x", "email", "x@example.org")));

@@ -62,6 +62,14 @@ public final class OAuthUsageSource implements UsageSource {
         }
     }
 
+    /** Like {@link #fetchIfDue}, but inside the cooldown it answers with the latest reading anyone (the watcher too) got, instead of nothing. */
+    public UsageData fetchOrLastKnown(String accountId, long cooldownMs) throws IOException {
+        var fresh = fetchIfDue(accountId, cooldownMs);
+        if (fresh != null) return fresh;
+        var last = service.lastKnown(accountId);
+        return last == null ? null : toUsageData(last);
+    }
+
     @Override
     public void close() {
     }

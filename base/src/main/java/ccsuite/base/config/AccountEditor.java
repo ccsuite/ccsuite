@@ -13,6 +13,9 @@ public final class AccountEditor {
     public static final List<String> PROPERTIES = List.of("name", "email", "ccapiBaseUrl", "orgId", "key", "active",
             "trackUsage", "ping", "tier", "ua", "trackChats", "claudecodelimit", "watchOnly", "primary");
 
+    /** The base URL every account carries unless told otherwise: the environment variable the other accounts use. */
+    public static final String DEFAULT_BASE_URL = "%CCAPI_BASE_URL%";
+
     /** A new account from {@code id}, {@code name} and {@code email} (required) and any other property; the id must be new. */
     public static CCAPICredential add(CCAPIsCredentials all, Map<String, String> props) {
         var id = props.get("id");
@@ -21,7 +24,10 @@ public final class AccountEditor {
         for (var need : List.of("name", "email"))
             if (props.get(need) == null || props.get(need).isBlank()) throw new IllegalArgumentException("an account needs a " + need);
         var c = new CCAPICredential().id(id);
+        // Without a base URL the usage widget skips the account and shows "no data".
+        c.ccapiBaseUrl(DEFAULT_BASE_URL);
         props.forEach((k, v) -> { if (!k.equals("id")) apply(c, k, v); });
+        if (c.ccapiBaseUrl() == null) c.ccapiBaseUrl(DEFAULT_BASE_URL);
         all.credentials().add(c);
         return c;
     }
