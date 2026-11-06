@@ -735,8 +735,9 @@ public class UsageWidget extends Application {
                 ? ccsuite.oauthswap.usage.UsageService.AUTO_ACTIVE_FALLBACK_COOLDOWN_MS
                 : ccsuite.oauthswap.usage.UsageService.AUTO_OTHER_FALLBACK_COOLDOWN_MS;
         try {
-            var probed = probeSource.fetchIfDue(id, cooldownMs);
-            if (probed == null) return null; // on cooldown (or unavailable) - stay quiet, this path runs every sweep
+            // Inside the cooldown the shared source still knows the watcher's latest reading; a key-less account lives on that.
+            var probed = probeSource.fetchOrLastKnown(id, cooldownMs);
+            if (probed == null) return null; // nothing read yet (or unavailable) - stay quiet, this path runs every sweep
             System.out.println("  🔁 " + id + ": auto fallback probe succeeded (~9 tokens)");
             return probed;
         } catch (Exception e) {
@@ -870,6 +871,12 @@ public class UsageWidget extends Application {
      * back to N/A on every periodic sweep.
      */
     private AccountUsage fetchAccountUsage(CCAPICredential credential) {
+        // An account with no claude.ai session key (one added only by its Claude Code login) has nothing the cookie route
+        // can use; go straight to the login's own route instead of failing and retrying the cookie one.
+        if (credential.key() == null || credential.key().isBlank()) {
+            var probed = tryAutoProbeFallback(credential);
+            return probed != null ? new AccountUsage(credential, probed) : lastKnownOrBlank(credential);
+        }
         var baseUrl = credential.resolvedCcapiBaseUrl();
         if (baseUrl == null || baseUrl.trim().isEmpty()) {
             System.err.println("  ⚠️  " + credential.id() + " skipped - ccapiBaseUrl not set");

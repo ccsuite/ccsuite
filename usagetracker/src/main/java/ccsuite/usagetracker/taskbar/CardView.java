@@ -39,10 +39,25 @@ final class CardView {
     /** The pages: every account, then ALL. */
     int count() { return list.size() + (all == null ? 0 : 1); }
 
-    AccountUsage current() { return cur < list.size() ? list.get(cur) : all; }
+    /** The free accounts' card: ALL is the FIRST page (the first screen is the overall), no account is "the active one", and the footer is the room line. */
+    boolean freeStyle;
+
+    AccountUsage current() {
+        if (freeStyle && all != null) return cur == 0 ? all : list.get(cur - 1);
+        return cur < list.size() ? list.get(cur) : all;
+    }
 
     /** True when the account on show is the one Claude Code is on, i.e. when the name is beating. */
-    boolean currentIsActive() { return cur < list.size() && list.get(cur).credential().claudecodeactive(); }
+    boolean currentIsActive() { return !freeStyle && cur < list.size() && list.get(cur).credential().claudecodeactive(); }
+
+    /** The free accounts in the order given, and their overall (built by the caller from what a free account reports) as the first page. */
+    void setFree(List<AccountUsage> l, AccountUsage overall) {
+        freeStyle = true;
+        list = List.copyOf(l);
+        total = new Consolidated();
+        all = list.size() < 2 ? null : overall;
+        if (cur >= count()) cur = 0;
+    }
 
     /** The account Claude Code is currently on goes first; the rest keep their order. */
     void set(List<AccountUsage> l) {
@@ -81,6 +96,11 @@ final class CardView {
         g.setFont(SMALL);
         g.setTextAlign(TextAlignment.LEFT);
         var mode = modeLabel.get();
+        if (freeStyle) {   // a free account has no weekly reset, so no weekly rate: just how many accounts have room
+            g.setFill(GREEN);
+            g.fillText(mode == null ? "free" : mode, x, y);
+            return;
+        }
         if (mode != null) {
             g.setFill(mode.equals("auto") ? GREEN : ORANGE);
             g.fillText(mode, x, y);
@@ -96,6 +116,13 @@ final class CardView {
     void autoHome() {
         if (cur != 0 && System.currentTimeMillis() - lastClick > HOME_AFTER_MS) cur = 0;
     }
+
+    /** The free accounts' card has its own palette (a blue-green ground, teal time bars), so the two cards are told apart at a glance; the usage colours keep their meaning. */
+    static final Color FREE_BG = Color.web("#1D3238"), FREE_BTN = Color.web("#27484F"), FREE_BTN_HOT = Color.web("#34606A"), FREE_TIME = Color.web("#26C6DA"), FREE_WEEK = Color.web("#80DEEA");
+
+    Color blue() { return freeStyle ? FREE_TIME : BLUE; }
+
+    Color sky() { return freeStyle ? FREE_WEEK : SKY; }
 
     static Color use(double p) { return p >= 80 ? RED : p >= 60 ? ORANGE : GREEN; }
     static Color rate(double r) { return r >= 120 ? RED : r >= 100 ? ORANGE : GREEN; }
@@ -118,9 +145,9 @@ final class CardView {
 
     void draw(GraphicsContext g, double w, double h) {
         g.setTextBaseline(VPos.CENTER);
-        if (list.isEmpty()) { blank(g, w, h, "no data"); return; }
+        if (list.isEmpty()) { blank(g, w, h, "no data", freeStyle ? FREE_BG : BG); return; }
         var a = current();
-        g.setFill(a.credential().active() ? BG : BG_OFF);
+        g.setFill(freeStyle ? FREE_BG : a.credential().active() ? BG : BG_OFF);
         g.fillRect(0, 0, w, h);
         side(g, h, a);
         footer(g, h);
@@ -132,18 +159,23 @@ final class CardView {
         var top = top(h);
         var pitch = ROW + gap(h);
         row(g, x0, top, w, h5, use(h5), use(h5), pct(a.getUsageToTimeRatio() * 100), rate(a.getUsageToTimeRatio() * 100));
-        row(g, x0, top + pitch, w, a.getFiveHourTimeElapsedPercent(), Color.WHITE, BLUE, a.getTimeUntilReset(), Color.WHITE);
+        row(g, x0, top + pitch, w, a.getFiveHourTimeElapsedPercent(), Color.WHITE, blue(), a.getTimeUntilReset(), Color.WHITE);
         if (s == null) { row(g, x0, top + 2 * pitch, w, 0, GRAY, GRAY, "--", GRAY); row(g, x0, top + 3 * pitch, w, 0, GRAY, GRAY, "--", GRAY); return; }
         var wk = s.utilization();
+        if (s.resetsAt() == null) {   // no weekly reset known (a free account): the usage, and nothing made up for the pace and the time
+            row(g, x0, top + 2 * pitch, w, wk, use(wk), use(wk), "--", GRAY);
+            row(g, x0, top + 3 * pitch, w, 0, GRAY, GRAY, "N/A", GRAY);
+            return;
+        }
         var wkt = elapsed(s.resetsAt(), 7 * 24 * 3600L);
         var ratio = wkt > 0 ? wk / wkt * 100 : 0;
         row(g, x0, top + 2 * pitch, w, wk, use(wk), use(wk), pct(ratio), rate(ratio));
-        row(g, x0, top + 3 * pitch, w, wkt, Color.WHITE, SKY, weekly(s.resetsAt()), Color.WHITE);
+        row(g, x0, top + 3 * pitch, w, wkt, Color.WHITE, sky(), weekly(s.resetsAt()), Color.WHITE);
     }
 
     void side(GraphicsContext g, double h, AccountUsage a) {
         var cred = a.credential();
-        g.setFill(hot ? BTN_HOT : BTN_BG);
+        g.setFill(freeStyle ? (hot ? FREE_BTN_HOT : FREE_BTN) : hot ? BTN_HOT : BTN_BG);
         g.fillRect(0, 0, BTN, h);
         g.setTextAlign(TextAlignment.CENTER);
         g.setFont(BOLD);
@@ -181,8 +213,8 @@ final class CardView {
         g.fillText(right, Math.max(bx, w - RIGHT), cy);
     }
 
-    static void blank(GraphicsContext g, double w, double h, String text) {
-        g.setFill(BG);
+    static void blank(GraphicsContext g, double w, double h, String text, Color bg) {
+        g.setFill(bg);
         g.fillRect(0, 0, w, h);
         g.setFill(GRAY);
         g.setFont(BOLD);

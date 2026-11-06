@@ -13,6 +13,7 @@
 
 #define BAND_NAME L"CCU taskbar card"
 #define CLASS_NAME L"CcuSlotWnd"
+#define CLASS_NAME2 L"CcuSlotWnd2"   // the window class of a band that is two cards long, so the Java side can tell what this DLL really gave the taskbar
 #define CATID_DESKBAND L"{00021492-0000-0000-C000-000000000046}"
 #define CARD_H 44
 #define CARD_W 101
@@ -25,6 +26,7 @@ typedef struct {
     LONG ref;
     IUnknown *pSite;
     HWND parent, hwnd;
+    int cards;   // 1 or 2, read from the registry once when the band is created, and used for its size and its window class from then on
 } Slot;
 
 static HINSTANCE g_inst;
@@ -35,11 +37,11 @@ static double scale(HWND h) {
     return (d ? d : 96) / 96.0;
 }
 
-static int ensureClass(void) {
+static int ensureClass(const wchar_t *name) {
     WNDCLASSW wc = {0};
     wc.lpfnWndProc = DefWindowProcW;
     wc.hInstance = g_inst;
-    wc.lpszClassName = CLASS_NAME;
+    wc.lpszClassName = name;
     wc.hbrBackground = CreateSolidBrush(RGB(42, 42, 42));
     return RegisterClassW(&wc) || GetLastError() == ERROR_CLASS_ALREADY_EXISTS;
 }
@@ -95,6 +97,14 @@ static HRESULT STDMETHODCALLTYPE bndClose(IDeskBand *t, DWORD r) {
 }
 static HRESULT STDMETHODCALLTYPE bndResize(IDeskBand *t, LPCRECT r, IUnknown *u, BOOL f) { return E_NOTIMPL; }
 
+// How many cards long the band is: 1 (the usage card alone), or 2 when ccacc also shows the free accounts' card. ccacc writes this DWORD; the DLL reads it when the band
+// is created (so toggling the band in the Toolbars menu, or restarting Explorer, picks up a change). Anything else than 1 or 2 counts as 1.
+static int cards(void) {
+    DWORD v = 1, n = sizeof v;
+    if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\ccsuite\\ccacc", L"slotCards", RRF_RT_REG_DWORD, NULL, &v, &n) != ERROR_SUCCESS) v = 1;
+    return v == 2 ? 2 : 1;
+}
+
 // A vertical rebar reads the x value as the band's LENGTH (its height) and the y value as its thickness (its width); a horizontal one the reverse.
 static HRESULT STDMETHODCALLTYPE bndInfo(IDeskBand *t, DWORD id, DWORD mode, DESKBANDINFO *i) {
     if (!i) return E_INVALIDARG;
@@ -103,7 +113,7 @@ static HRESULT STDMETHODCALLTYPE bndInfo(IDeskBand *t, DWORD id, DWORD mode, DES
     if (p) GetClientRect(p, &pr);
     double s = scale(p);
     int vertical = (mode & DBIF_VIEWMODE_VERTICAL) || pr.bottom > pr.right;
-    int len = (int)((vertical ? CARD_H : CARD_W) * s), thick = vertical && pr.right > 0 ? pr.right : !vertical && pr.bottom > 0 ? pr.bottom : (int)(CARD_H * s);
+    int len = (int)((vertical ? CARD_H : CARD_W) * s) * OFBAND(t)->cards, thick = vertical && pr.right > 0 ? pr.right : !vertical && pr.bottom > 0 ? pr.bottom : (int)(CARD_H * s);
     if (i->dwMask & DBIM_MINSIZE) { i->ptMinSize.x = len; i->ptMinSize.y = thick; }
     if (i->dwMask & DBIM_MAXSIZE) { i->ptMaxSize.x = -1; i->ptMaxSize.y = -1; }
     if (i->dwMask & DBIM_INTEGRAL) { i->ptIntegral.x = 1; i->ptIntegral.y = 1; }
@@ -119,10 +129,12 @@ static HRESULT STDMETHODCALLTYPE sitSetSite(IObjectWithSite *t, IUnknown *site) 
     IOleWindow *ow = NULL;
     HRESULT hr = site->lpVtbl->QueryInterface(site, &IID_IOleWindow, (void **)&ow);
     if (SUCCEEDED(hr)) { hr = ow->lpVtbl->GetWindow(ow, &b->parent); ow->lpVtbl->Release(ow); }
-    if (FAILED(hr) || !b->parent || !ensureClass()) { b->parent = NULL; return E_FAIL; }
+    b->cards = cards();
+    const wchar_t *cls = b->cards == 2 ? CLASS_NAME2 : CLASS_NAME;
+    if (FAILED(hr) || !b->parent || !ensureClass(cls)) { b->parent = NULL; return E_FAIL; }
     b->pSite = site;
     site->lpVtbl->AddRef(site);
-    b->hwnd = CreateWindowExW(0, CLASS_NAME, L"", WS_CHILD | WS_CLIPSIBLINGS | WS_CLIPCHILDREN | WS_VISIBLE, 0, 0, 0, 0, b->parent, NULL, g_inst, NULL);
+    b->hwnd = CreateWindowExW(0, cls, L"", WS_CHILD | WS_CLIPSIBLINGS | WS_CLIPCHILDREN | WS_VISIBLE, 0, 0, 0, 0, b->parent, NULL, g_inst, NULL);
     return b->hwnd ? S_OK : E_FAIL;
 }
 static HRESULT STDMETHODCALLTYPE sitGetSite(IObjectWithSite *t, REFIID r, void **p) {
