@@ -30,6 +30,8 @@ final class FreeGauges {
     final Map<String, Row> rows = Collections.synchronizedMap(new LinkedHashMap<>());
     final Map<String, String> lastLogged = new HashMap<>();
     volatile Runnable onChange = () -> { };
+    /** Told every usable reading with where it came from: "probe" (the background reader) or "call" (the gauge of a served call). The free lane's estimator listens (PRP 78). */
+    volatile BiConsumer<Row, String> onReading = (r, source) -> { };
     ScheduledExecutorService timer;
 
     FreeGauges(Supplier<List<CCAPICredential>> accounts, Probe probe, Path log) {
@@ -72,6 +74,7 @@ final class FreeGauges {
         }
         rows.put(c.id(), row);
         record(row);
+        if (row.ok()) onReading.accept(row, "probe");
         onChange.run();
         return row;
     }
@@ -84,6 +87,7 @@ final class FreeGauges {
             resetsAt != null ? resetsAt : old == null ? null : old.resetsAt(), Instant.now(), old == null ? null : old.model(), null, 0);
         rows.put(id, row);
         record(row);
+        if (row.ok()) onReading.accept(row, "call");
         onChange.run();
     }
 

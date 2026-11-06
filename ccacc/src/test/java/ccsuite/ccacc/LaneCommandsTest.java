@@ -63,6 +63,24 @@ class LaneCommandsTest {
         assertEquals(8686, l.fclaudePort());
     }
 
+    @Test void theStatusCommandsAreReadOnlyAndShowEachAccountsRoomFromTheLedgerWhenNoAppRuns(@TempDir Path dir) throws Exception {
+        var ledger = new FreeLedger(dir.resolve("ledger"));
+        var reset = Instant.now().getEpochSecond() + 3600;
+        ledger.append(new FreeLedger.Call(Instant.now().minusSeconds(60), "ACC1", "m", 70_000, 17_500, "new", 200, 1000, 0.40, 0.02, reset, 0.55, 0.03, reset, 15.4, 15.0, true, "s"));
+        var before = FreeLedgerTest.names(dir.resolve("ledger"));
+        var c = new LaneCommands(new CcaccSettingsStore(dir.resolve("settings.json")), null, ledger);
+        for (var line : List.of("lanes", "lanes show", "lanes status", "lanes open", "lanes drain")) assertTrue(c.run(List.of(line.split(" "))).ok(), line);
+        var text = c.run(List.of("lanes")).message();
+        assertTrue(text.contains("ACC1") && text.contains("room now  45") && text.contains("predicted  45"), text);
+        assertTrue(text.contains("ccacc is not running"), text);
+        assertTrue(c.run(List.of("lanes", "open")).message().contains("not running"));
+        assertTrue(c.run(List.of("lanes", "drain")).message().startsWith("idle"));
+        assertFalse(c.run(List.of("lanes", "hold", "on")).ok(), "a hold needs the running app");
+        assertFalse(Files.exists(dir.resolve("settings.json")), "no settings were written");
+        assertEquals(before, FreeLedgerTest.names(dir.resolve("ledger")), "no ledger file was added or removed");
+        assertEquals(1, ledger.calls(null).size());
+    }
+
     @Test void showListsTheTwoPorts(@TempDir Path dir) {
         var reply = new LaneCommands(new CcaccSettingsStore(dir.resolve("settings.json")), null).run(List.of("lanes"));
         assertTrue(reply.ok());

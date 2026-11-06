@@ -153,6 +153,177 @@ class FreeLaneTest {
         assertNull(none.guard(conversation("hello", 475_000)), "no free accounts known: nothing to compare with");
     }
 
+    @Test void aFreeAccountAddedAfterTheLaneStartedCountsTowardsTheRoom(@TempDir Path dir) throws Exception {
+        var current = new ArrayList<>(List.of(account("A", 0, true, false)));
+        var l = lane(dir, current, new LaneSettings());
+        l.ids = List.of("A");   // as start() leaves it: the accounts there were at that moment
+        l.gauges.rows.put("A", new FreeGauges.Row("A", "a", 0.95, 0.1, "within_limit", Instant.now().getEpochSecond() + 3600, Instant.now(), "m", null, 1));
+        var body = conversation("hello", 60_000);
+        assertNotNull(l.guard(body), "one account with 5 points left cannot start it");
+        current.add(account("B", 0, true, false));
+        l.gauges.rows.put("B", new FreeGauges.Row("B", "b", 0.0, 0.1, "within_limit", Instant.now().getEpochSecond() + 3600, Instant.now(), "m", null, 1));
+        assertNull(l.guard(body), "a second free account with plenty of room was added: the lane can use it now, so the guard must not refuse");
+        assertEquals(100.0, l.bestRoomPoints(), 0.001);
+    }
+
+    // ---- PRP 78: the ledger, the estimator, the allocation, the guard on the ledger's room, the open calls
+
+    static final long RESETS = Instant.now().getEpochSecond() + 3600;
+    final List<String> places = Collections.synchronizedList(new ArrayList<>());
+
+    /** A stub of the proxy: says which account served (as the proxy's response header does), records the placement hint it was given, and does {@code during} while the call runs (the gauge of the reply arriving). */
+    int proxy(String account, Runnable during, CountDownLatch hold) throws Exception {
+        var s = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        s.createContext("/", ex -> {
+            places.add(String.valueOf(ex.getRequestHeaders().getFirst("x-ccacc-place")));
+            ex.getRequestBody().readAllBytes();
+            try { if (hold != null) hold.await(15, TimeUnit.SECONDS); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            during.run();
+            ex.getResponseHeaders().set("x-ccacc-account", account);
+            var out = "ok".getBytes(StandardCharsets.UTF_8);
+            ex.sendResponseHeaders(200, out.length);
+            ex.getResponseBody().write(out);
+            ex.close();
+        });
+        s.start();
+        servers.add(s);
+        return s.getAddress().getPort();
+    }
+
+    HttpResponse<String> postBody(LaneFront f, byte[] body) throws Exception {
+        return HttpClient.newHttpClient().send(HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + f.boundPort() + "/v1/messages")).header("x-api-key", "k").POST(HttpRequest.BodyPublishers.ofByteArray(body)).build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    FreeLane ledgered(Path dir, List<CCAPICredential> accounts) {
+        var gauges = new FreeGauges(() -> accounts, (c, m) -> { probes.incrementAndGet(); return new FreeGauge.Reading(0.4, 0.1, "within_limit", RESETS, m, 1, 1); }, dir);
+        var l = new FreeLane(gauges, () -> accounts, new LaneSettings(), new FreeLedger(dir.resolve("ledger")));
+        l.ids = accounts.stream().map(CCAPICredential::id).toList();
+        l.up = true;
+        return l;
+    }
+
+    void read(FreeLane l, String id, double five) {
+        l.gauges.rows.put(id, new FreeGauges.Row(id, id, five, 0.1, "within_limit", RESETS, Instant.now(), "m", null, 1));
+    }
+
+    static <T> void await(java.util.function.BooleanSupplier done) throws Exception {
+        for (var i = 0; i < 100 && !done.getAsBoolean(); i++) Thread.sleep(50);
+        assertTrue(done.getAsBoolean(), "did not happen in 5 s");
+    }
+
+    @Test void aServedCallIsInTheLedgerWithTheGaugeBeforeAndAfterAndTheCorrectionOfTheEstimate(@TempDir Path dir) throws Exception {
+        var l = ledgered(dir, List.of(account("A", 0, true, false)));
+        read(l, "A", 0.40);
+        l.port = proxy("A", () -> l.gauges.observe("A", 0.55, 0.03, RESETS), null);
+        var body = conversation("hello", 70_000);
+        assertEquals(200, postBody(front(l), body).statusCode());
+        await(() -> !l.ledger.calls(null).isEmpty());
+        var c = l.ledger.calls(null).get(0);
+        assertEquals("A", c.account());
+        assertEquals(200, c.status());
+        assertEquals("new", c.cache());
+        assertEquals(body.length, c.chars());
+        assertEquals(body.length / 4, c.tokens(), "characters over four");
+        assertEquals(0.40, c.before5(), 1e-9);
+        assertEquals(0.55, c.after5(), 1e-9);
+        assertEquals(RESETS, c.reset5After());
+        assertEquals(15.0, c.observed(), 1e-9, "the gauge moved by 15 points");
+        assertEquals(2.2 * body.length / 10_000.0, c.predicted(), 1e-9);
+        assertTrue(c.alone());
+        var corrections = l.ledger.corrections(null);
+        assertTrue(corrections.stream().anyMatch(x -> x.source().equals("call") && Math.abs(x.correction5() - (55 - (40 + c.predicted()))) < 1e-6), "the reading differed from the estimate and the size of the correction is logged: " + corrections);
+        assertEquals(45, l.estimator.room("A", Instant.now()).now(), 1e-9);
+    }
+
+    @Test void theRoomSurvivesARestartOfTheLane(@TempDir Path dir) throws Exception {
+        var accounts = List.of(account("A", 0, true, false));
+        var l1 = ledgered(dir, accounts);
+        read(l1, "A", 0.40);
+        var carry = new AtomicBoolean(true);
+        l1.port = proxy("A", () -> { if (carry.get()) l1.gauges.observe("A", 0.55, 0.03, RESETS); }, null);
+        var f = front(l1);
+        postBody(f, conversation("first conversation", 70_000));
+        carry.set(false);   // the second call comes back with no gauge: only its predicted cost is known
+        postBody(f, conversation("second conversation", 30_000));
+        await(() -> l1.ledger.calls(null).size() == 2);
+        var now = Instant.now();
+        var before = l1.estimator.room("A", now);
+        assertTrue(before.now() < 45 - 6, "the second call is in the room: " + before);
+        var l2 = ledgered(dir, accounts);   // a new process over the same files
+        var after = l2.estimator.room("A", now);
+        assertEquals(before.now(), after.now(), 1e-9, "the same room read back");
+        assertEquals(before.usedWeek(), after.usedWeek(), 1e-9);
+        assertEquals(l1.estimator.rate("new"), l2.estimator.rate("new"), 1e-9);
+    }
+
+    @Test void aNewConversationIsPlacedOnTheAccountWithTheMostPredictedRoomAndTheProxyIsTold(@TempDir Path dir) throws Exception {
+        var l = ledgered(dir, List.of(account("A", 0, true, false), account("B", 0, true, false)));
+        read(l, "A", 0.70);
+        read(l, "B", 0.40);
+        l.port = proxy("B", () -> { }, null);
+        var f = front(l);
+        postBody(f, conversation("fresh one", 20_000));
+        assertEquals(List.of("B"), places, "the hint names the account with the most room");
+        postBody(f, conversation("fresh one", 25_000));
+        await(() -> places.size() == 2);
+        assertEquals("null", places.get(1), "the same session goes on where its chat is: no hint");
+        await(() -> l.ledger.calls(null).size() == 2);
+        assertEquals(List.of("new", "continued"), l.ledger.calls(null).stream().map(FreeLedger.Call::cache).toList());
+    }
+
+    @Test void theGuardUsesTheLedgersRoomAndTheRefusalSaysWhatWasPredictedAndWhenRoomComesBack(@TempDir Path dir) throws Exception {
+        var l = ledgered(dir, List.of(account("A", 0, true, false)));
+        var now = Instant.now();
+        l.estimator.observe("A", now.minusSeconds(120), 0.50, 0.1, now.getEpochSecond() + 1800, "probe");   // the last reading says 50 points are left
+        l.estimator.spent("A", now.minusSeconds(60), 40);                                                   // calls since then that carried no reading
+        var refusal = l.guard(conversation("hello", 60_000));
+        assertNotNull(refusal, "the reading alone would allow it; the ledger knows 40 more points were spent");
+        assertTrue(refusal.contains("the ledger predicts") && refusal.contains("10 points"), refusal);
+        assertTrue(refusal.matches("(?s).*room comes back with the next window reset, in about \\d+ min.*"), refusal);
+    }
+
+    @Test void aRefusalIsTheLastResortOnlyWhenNoAccountFits(@TempDir Path dir) throws Exception {
+        var l = ledgered(dir, List.of(account("A", 0, true, false), account("B", 0, true, false)));
+        read(l, "A", 0.95);
+        read(l, "B", 0.10);
+        assertNull(l.guard(conversation("hello", 60_000)), "A cannot, B can: allocation succeeds, no refusal");
+        read(l, "B", 0.96);
+        assertNotNull(l.guard(conversation("hello", 60_000)), "neither can");
+    }
+
+    @Test void theCallsInFlightAreListedWhileTheyRunAndAHoldTurnsNewOnesAway(@TempDir Path dir) throws Exception {
+        var l = ledgered(dir, List.of(account("A", 0, true, false)));
+        read(l, "A", 0.10);
+        var release = new CountDownLatch(1);
+        l.port = proxy("A", () -> { }, release);
+        var f = front(l);
+        var running = java.util.concurrent.CompletableFuture.supplyAsync(() -> { try { return postBody(f, conversation("slow one", 20_000)); } catch (Exception e) { throw new IllegalStateException(e); } });
+        await(() -> l.openCalls().size() == 1);
+        var open = l.openCalls().get(0);
+        assertEquals("A", open.account());
+        assertEquals("claude-sonnet-5-5", open.model());
+        assertTrue(open.chars() > 19_000);
+        assertTrue(FreeLane.drainVerdict(l.openCalls(), Instant.now(), Duration.ofMinutes(5)).startsWith("busy 1"));
+        l.hold(true);
+        assertEquals(503, postBody(f, conversation("another", 20_000)).statusCode(), "a held lane turns a new request away: the restart script is waiting for the running ones");
+        release.countDown();
+        assertEquals(200, running.get().statusCode());
+        await(() -> l.openCalls().isEmpty());
+        assertTrue(FreeLane.drainVerdict(l.openCalls(), Instant.now(), Duration.ofMinutes(5)).startsWith("idle"));
+    }
+
+    @Test void drainWaitsForRunningCallsAndIgnoresOnesStuckOverFiveMinutes() {
+        var now = Instant.parse("2026-11-07T10:00:00Z");
+        var young = new FreeLane.OpenCall(1, now.minusSeconds(10), "A", "m", 1000, "new");
+        var stuck = new FreeLane.OpenCall(2, now.minusSeconds(400), "B", "m", 1000, "new");
+        var five = Duration.ofMinutes(5);
+        assertTrue(FreeLane.drainVerdict(List.of(), now, five).startsWith("idle"));
+        assertTrue(FreeLane.drainVerdict(List.of(young), now, five).startsWith("busy 1"));
+        assertTrue(FreeLane.drainVerdict(List.of(young, stuck), now, five).startsWith("busy 1"), "the stuck one does not hold the restart, the young one does");
+        var v = FreeLane.drainVerdict(List.of(stuck), now, five);
+        assertTrue(v.startsWith("stuck 1") && v.contains("400"), "a request stuck over 5 minutes lets the restart go, and says so: " + v);
+    }
+
     @Test void aLaneThatDidNotStartAnswers503() throws Exception {
         var l = lane(Path.of("unused"), List.of(), new LaneSettings());
         assertEquals(503, post(front(l), "claude-haiku-5-5").statusCode());

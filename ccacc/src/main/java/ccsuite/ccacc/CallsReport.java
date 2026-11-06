@@ -121,5 +121,42 @@ final class CallsReport {
         return root.toPrettyString();
     }
 
+    // ---- what needs attention (PRP 78 R6): read-only, for the fclaude monitor
+
+    /** The calls of a selection that failed, and the ones that took longer than the limit. */
+    record Attention(List<JsonNode> failed, List<JsonNode> slow, long slowMs) {}
+
+    static Attention attention(List<JsonNode> calls, long slowMs) {
+        return new Attention(calls.stream().filter(c -> c.has("ok") && !c.path("ok").asBoolean()).toList(), calls.stream().filter(c -> c.path("ok").asBoolean(true) && c.path("ms").asLong() > slowMs).toList(), slowMs);
+    }
+
+    static String when(JsonNode c) { return instant(c).map(t -> t.truncatedTo(java.time.temporal.ChronoUnit.SECONDS).toString()).orElse("?"); }
+
+    /** {@code open}: the calls running now as the app lists them ({@code ccacc lanes open}), empty when no app answered. */
+    static List<String> attentionText(Attention a, Optional<List<String>> open) {
+        var out = new ArrayList<String>();
+        out.add("failed (" + a.failed().size() + "):");
+        a.failed().forEach(c -> out.add("  " + when(c) + "  " + key(c, "account") + "  " + key(c, "model") + "  " + key(c, "failure") + "  " + c.path("ms").asLong() / 1000 + " s" + (c.hasNonNull("error") ? "  " + c.get("error").asText() : "")));
+        out.add("slow (" + a.slow().size() + ", over " + a.slowMs() / 1000 + " s):");
+        a.slow().forEach(c -> out.add("  " + when(c) + "  " + key(c, "account") + "  " + key(c, "model") + "  " + c.path("ms").asLong() / 1000 + " s  sent " + c.path("promptChars").asLong() + " chars"));
+        if (open.isEmpty()) out.add("open calls: unknown (ccacc is not running, or did not answer)");
+        else {
+            out.add("still open (" + open.get().size() + "):");
+            open.get().forEach(l -> out.add("  " + l));
+        }
+        return out;
+    }
+
+    static String attentionJson(Attention a, Optional<List<String>> open) {
+        var root = JSON.createObjectNode();
+        var failed = root.putArray("failed");
+        a.failed().forEach(failed::add);
+        var slow = root.putArray("slow");
+        a.slow().forEach(slow::add);
+        if (open.isPresent()) { var o = root.putArray("open"); open.get().forEach(o::add); }
+        else root.putNull("open");
+        return root.toPrettyString();
+    }
+
     private CallsReport() {}
 }

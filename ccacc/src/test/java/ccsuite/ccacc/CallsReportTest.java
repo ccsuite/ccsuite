@@ -107,6 +107,43 @@ class CallsReportTest {
         assertEquals(1, CallsReport.groups(sorted, "job").size());
     }
 
+    // ---- PRP 78 R6: what the monitor reads, and nothing it reads changes anything
+
+    static String recent(int minutesAgo, String account, boolean ok, long ms, String extra) {
+        return "{\"ts\":\"" + Instant.now().minus(Duration.ofMinutes(minutesAgo)) + "\",\"job\":null,\"account\":\"" + account + "\",\"model\":\"claude-sonnet-5-5\",\"session\":\"ab12cd34\",\"mode\":\"new\",\"promptChars\":63000,\"replyChars\":500,\"ms\":" + ms + ",\"ok\":" + ok + extra + "}";
+    }
+
+    @Test void failedSlowAndOpenCallsAreListedForTheMonitor() throws Exception {
+        var calls = CallsReport.parse(List.of(recent(10, "F1", true, 4_000, ""), recent(8, "F2", false, 5_000, ",\"failure\":\"RATE_LIMITED\",\"error\":\"Rate limited\""), recent(5, "F3", true, 90_000, "")));
+        var a = CallsReport.attention(calls, 60_000);
+        assertEquals(1, a.failed().size());
+        assertEquals(1, a.slow().size());
+        var text = String.join(" ", CallsReport.attentionText(a, Optional.of(List.of("open 412 s F4 claude-sonnet-5-5 63000 chars"))));
+        assertTrue(text.contains("failed (1)") && text.contains("F2") && text.contains("RATE_LIMITED"), text);
+        assertTrue(text.contains("slow (1,") && text.contains("F3") && text.contains("90 s"), text);
+        assertTrue(text.contains("still open (1)") && text.contains("412 s"), text);
+        assertTrue(String.join(" ", CallsReport.attentionText(a, Optional.empty())).contains("open calls: unknown"), "no app answering is said, not guessed");
+        var json = CallsReport.attentionJson(a, Optional.of(List.of("open 412 s F4 m 1 chars")));
+        assertEquals(1, CallsReport.JSON.readTree(json).path("failed").size());
+        assertEquals(1, CallsReport.JSON.readTree(json).path("open").size());
+    }
+
+    @Test void theCallsCommandWithSinceShowsWhatNeedsAttentionAndWritesNothing(@TempDir Path dir) throws Exception {
+        var file = dir.resolve("calls.jsonl");
+        Files.write(file, List.of(recent(40, "F0", false, 1000, ",\"failure\":\"OLD\""), recent(10, "F1", true, 4_000, ""), recent(8, "F2", false, 5_000, ",\"failure\":\"RATE_LIMITED\"")));
+        var before = Files.readAllBytes(file);
+        var out = new java.io.ByteArrayOutputStream();
+        var old = System.out;
+        System.setOut(new java.io.PrintStream(out, true, StandardCharsets.UTF_8));
+        int code;
+        try { code = CallsCli.run(new String[]{"--file", file.toString(), "--since", "15m"}, () -> Optional.of(List.of("open 400 s F9 claude-sonnet-5-5 1000 chars"))); } finally { System.setOut(old); }
+        var text = out.toString(StandardCharsets.UTF_8);
+        assertEquals(0, code);
+        assertTrue(text.contains("failed (1)") && text.contains("RATE_LIMITED") && !text.contains("OLD"), "only the last 15 minutes: " + text);
+        assertTrue(text.contains("still open (1)"), text);
+        assertArrayEquals(before, Files.readAllBytes(file), "reading the calls changes nothing");
+    }
+
     @Test void theSettingCommandValidatesChatReuse(@TempDir Path dir) {
         var store = new CcaccSettingsStore(dir.resolve("settings.json"));
         var c = new LaneCommands(store, null);
