@@ -176,10 +176,11 @@ class FreeLaneTest {
         var s = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         s.createContext("/", ex -> {
             places.add(String.valueOf(ex.getRequestHeaders().getFirst("x-ccacc-place")));
-            ex.getRequestBody().readAllBytes();
+            var bodyLength = ex.getRequestBody().readAllBytes().length;
             try { if (hold != null) hold.await(15, TimeUnit.SECONDS); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
             during.run();
             ex.getResponseHeaders().set("x-ccacc-account", account);
+            ex.getResponseHeaders().set("x-ccacc-prompt-chars", String.valueOf(bodyLength - 1000));
             var out = "ok".getBytes(StandardCharsets.UTF_8);
             ex.sendResponseHeaders(200, out.length);
             ex.getResponseBody().write(out);
@@ -228,7 +229,8 @@ class FreeLaneTest {
         assertEquals(0.55, c.after5(), 1e-9);
         assertEquals(RESETS, c.reset5After());
         assertEquals(15.0, c.observed(), 1e-9, "the gauge moved by 15 points");
-        assertEquals(2.2 * body.length / 10_000.0, c.predicted(), 1e-9);
+        assertEquals(3.4 + 1.65 * body.length / 10_000.0 + 3.6, c.predicted(), 1e-9);
+        assertEquals(body.length - 1000L, c.promptChars(), "the prompt size the proxy reported");
         assertTrue(c.alone());
         var corrections = l.ledger.corrections(null);
         assertTrue(corrections.stream().anyMatch(x -> x.source().equals("call") && Math.abs(x.correction5() - (55 - (40 + c.predicted()))) < 1e-6), "the reading differed from the estimate and the size of the correction is logged: " + corrections);
@@ -253,7 +255,8 @@ class FreeLaneTest {
         var after = l2.estimator.room("A", now);
         assertEquals(before.now(), after.now(), 1e-9, "the same room read back");
         assertEquals(before.usedWeek(), after.usedWeek(), 1e-9);
-        assertEquals(l1.estimator.rate("new"), l2.estimator.rate("new"), 1e-9);
+        assertEquals(l1.estimator.rate("claude-sonnet-5-5"), l2.estimator.rate("claude-sonnet-5-5"), 1e-9);
+        assertEquals(l1.estimator.promptPerBody(), l2.estimator.promptPerBody(), 1e-9);
     }
 
     @Test void aNewConversationIsPlacedOnTheAccountWithTheMostPredictedRoomAndTheProxyIsTold(@TempDir Path dir) throws Exception {
@@ -280,6 +283,31 @@ class FreeLaneTest {
         assertNotNull(refusal, "the reading alone would allow it; the ledger knows 40 more points were spent");
         assertTrue(refusal.contains("the ledger predicts") && refusal.contains("10 points"), refusal);
         assertTrue(refusal.matches("(?s).*room comes back with the next window reset, in about \\d+ min.*"), refusal);
+    }
+
+    @Test void theResumedConversationOf655kCharactersIsBeyondAnyAccountAndTheMessageSaysSoWithTheLimit(@TempDir Path dir) throws Exception {
+        var l = ledgered(dir, List.of(account("A", 0, true, false), account("B", 0, true, false)));
+        read(l, "A", 0.0);
+        read(l, "B", 0.0);
+        var refusal = l.guard(conversation("resumed", 655_260));
+        assertNotNull(refusal, "the 2026-11-07 case: 655,260 characters (121,176 tokens) cannot be a first call on any free account, however empty");
+        assertTrue(refusal.contains("on any free account") && refusal.contains("completely unloaded account has 100"), refusal);
+        assertTrue(refusal.matches("(?s).*most the free lane can take as a first call, uncached, is about [0-9,]+ characters \\(~[0-9,]+ tokens on Sonnet 5.5\\).*"), refusal);
+        assertTrue(refusal.contains("Compact it first") && refusal.contains("--model haiku"), "it says to compact, and that Haiku would fit: " + refusal);
+        assertFalse(refusal.contains("room comes back"), "waiting would not help: " + refusal);
+    }
+
+    @Test void aConversationThatFitsAnUnloadedAccountIsAllowedThereAndAsksToWaitWhereverItDoesNot(@TempDir Path dir) throws Exception {
+        var l = ledgered(dir, List.of(account("A", 0, true, false), account("B", 0, true, false)));
+        read(l, "A", 0.0);
+        read(l, "B", 0.0);
+        assertNull(l.guard(conversation("measured", 475_719)), "475,719 characters cost 81 to 85 points when measured on empty accounts: it fits");
+        var soon = Instant.now().getEpochSecond() + 20 * 60;
+        l.gauges.rows.put("A", new FreeGauges.Row("A", "a", 0.9, 0.1, "within_limit", soon, Instant.now(), "m", null, 1));
+        l.gauges.rows.put("B", new FreeGauges.Row("B", "b", 0.9, 0.1, "within_limit", Instant.now().getEpochSecond() + 90 * 60, Instant.now(), "m", null, 1));
+        var refusal = l.guard(conversation("measured", 475_719));
+        assertNotNull(refusal);
+        assertTrue(refusal.contains("on A") && refusal.matches("(?s).*in about (19|20) min.*"), "A gets its room back first: " + refusal);
     }
 
     @Test void aRefusalIsTheLastResortOnlyWhenNoAccountFits(@TempDir Path dir) throws Exception {

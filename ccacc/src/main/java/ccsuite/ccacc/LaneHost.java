@@ -78,7 +78,8 @@ final class LaneHost {
         if (f == null) out.add("free lane: not running" + (running() ? "" : " (lanes are off)"));
         else out.add("free lane: " + (f.available() ? f.ids.size() + " accounts " + f.ids + ", " + f.inFlight() + " in flight, room " + (f.hasHeadroom() ? "yes" : "no") + ", chat reuse " + l.chatReuseMode() + (f.hold ? ", HELD (new requests get 503)" : "")
                 : "not started: " + f.problem));
-        if (f != null && f.available()) { out.add("free accounts, room as the ledger predicts (corrected by each gauge reading; points of the five-hour window):"); out.addAll(f.roomLines()); }
+        if (f != null && f.available()) { out.add(f.estimator.limitText());
+            out.add("free accounts, room as the ledger predicts (corrected by each gauge reading; points of the five-hour window):"); out.addAll(f.roomLines()); }
         var paid = service.paid();
         if (l.paidPinOrNull() != null) out.add("paid pin: " + l.paidPinOrNull() + "  (the paid lane uses only this account and never moves to another)");
         if (paid != null) out.add("paid lane: weekly pace " + paid.weeklyPace().stream().mapToObj(p -> Math.round(p) + "%").findFirst().orElse("unknown") + ", room " + (paid.hasHeadroom() ? "yes" : "no"));

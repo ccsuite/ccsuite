@@ -36,6 +36,12 @@ class FreeLedgerTest {
         assertEquals(List.of(written), reopened, "the same call, read by a new ledger object as a restart would");
     }
 
+    @Test void thePromptSizeTheProxyReportedIsKept(@TempDir Path dir) {
+        var c = new FreeLedger.Call(T, "A", "m", 70_000, 17_500, "new", 200, 1, null, null, null, null, null, null, 15.4, null, true, "s", 61_000L);
+        new FreeLedger(dir).append(c);
+        assertEquals(61_000L, new FreeLedger(dir).calls(null).get(0).promptChars());
+    }
+
     @Test void aCallWithNoReadingKeepsNullsAndFilesRotateByDay(@TempDir Path dir) {
         var ledger = new FreeLedger(dir);
         ledger.append(call(T, "A", 1_000, null, null));

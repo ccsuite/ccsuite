@@ -30,10 +30,11 @@ final class LaneCommands {
                 case "open" -> Reply.ok(host == null ? "ccacc is not running: no calls in flight" : String.join("\n", host.openLines()));
                 case "drain" -> Reply.ok(host == null ? "idle (ccacc is not running)" : host.drain(Duration.ofMinutes(5)));
                 case "hold" -> hold(args);
+                case "limits" -> Reply.ok(String.join("\n", (host != null && host.free != null ? host.free.estimator : FreeEstimator.fromLedger(ledger, store.load().lanes(), java.time.Instant.now())).limitLines()));
                 case "on", "off" -> onOff(sub.equals("on"));
                 case "set" -> set(args);
                 case "free-accounts" -> accounts(args);
-                default -> Reply.error("lanes: show | open | drain | hold on|off | on | off | set <freeFiveLimit|freeWeekLimit|perAccountSlots|chatReuse|paidPin> <value> | free-accounts <id,id|all>");
+                default -> Reply.error("lanes: show | limits | open | drain | hold on|off | on | off | set <freeFiveLimit|freeWeekLimit|perAccountSlots|chatReuse|paidPin> <value> | free-accounts <id,id|all>");
             };
         } catch (IllegalArgumentException e) {
             return Reply.error(e.getMessage());
@@ -48,10 +49,11 @@ final class LaneCommands {
                 String.format("  fclaude   127.0.0.1:%-5d the free accounts, haiku and sonnet", l.fclaudePort())));
         var now = java.time.Instant.now();
         var estimate = FreeEstimator.fromLedger(ledger, l, now);   // read-only: the room each free account had when the ledger was last written
+        out.add(estimate.limitText());
         var ids = estimate.accounts().stream().sorted().toList();
         if (!ids.isEmpty()) {
             out.add("free accounts, room as the ledger left it (ccacc is not running, nothing live is known):");
-            estimate.rooms(ids, now).forEach(r -> out.add("  " + FreeEstimator.line(r, now)));
+            estimate.rooms(ids, now).forEach(r -> out.add("  " + estimate.line(r, now)));
         }
         return out;
     }

@@ -29,8 +29,22 @@ public class LaneSettings {
     int perAccountSlots = 2;
     /** The guard against starting a conversation the free lane cannot carry: a request bigger than this many characters that starts a new chat is refused when the free account with the most room cannot take it. */
     int guardMinChars = 40_000;
-    /** The measured cost of a first call on the free lane: about 2.2 points of a five-hour window per 10,000 characters sent (65,000 to 75,000 characters cost 14 to 16), plus the reply. */
-    double pointsPer10kChars = 2.2;
+    /**
+     * The measured cost of a Sonnet 5.5 call on the free lane (PRP 78, from the call log of 2026-11-06, new chats on accounts that started low): about 1.65 points of a
+     * five-hour window per 10,000 characters of prompt, plus {@link #firstCallPoints} for starting a chat and {@link #expectedReplyPoints} for the reply. Checks: 65,000
+     * characters cost 14 to 18 points (predicted 17.7), 475,719 to 484,707 characters cost 81 to 85 (predicted 85). Learned from the ledger from there on.
+     */
+    double pointsPer10kChars = 1.65;
+    /** Points a new chat costs before its prompt (measured about 3.4 on Sonnet 5.5). */
+    double firstCallPoints = 3.4;
+    /** Points a reply is expected to cost (about 3,000 characters of reply; a reply costs about 12 points per 10,000 characters, 7 times the input per character). */
+    double expectedReplyPoints = 3.6;
+    /** Haiku costs about this fraction of Sonnet 5.5 (measured: 153,736 characters took 9 points). */
+    double haikuFactor = 0.3;
+    /** Characters of request body per token as Claude Code counts them (655,260 characters were 121,176 tokens on 2026-11-07): to say limits in the tokens its status line shows. */
+    double charsPerClaudeCodeToken = 5.4;
+    /** Claude Code is told to compact at this fraction of the largest first call the free lane can carry (CLAUDE_CODE_AUTO_COMPACT_WINDOW in fclaude.bat). */
+    double compactAtFraction = 0.75;
     /** Points of room that must stay over after the call. */
     double guardMarginPoints = 5;
     /** Chat reuse of the free lane (PRP 74): "on" (one web chat per Claude Code session, only the new part sent: about a third of the gauge cost), "off", or "fresh" (a new chat every call, the control for a measurement). On unless the user chose otherwise: see {@link #chatReuseExplicit}. */

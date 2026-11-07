@@ -59,8 +59,9 @@ class FreeEstimatorTest {
 
     @Test void theCostIsPredictedFromSizeAndCacheStateAndLearnedFromTheCallsGaugeMovement() {
         var e = est();
-        assertEquals(15.4, e.predict(70_000, "new"), 1e-9, "the setting is the first rate: 2.2 points per 10,000 characters");
-        assertEquals(0.3, e.predict(10, "continued"), 1e-9, "a call is never free");
+        assertEquals(3.4 + 1.65 * 7 + 3.6, e.predict(70_000, "new"), 1e-9, "a new chat: its start, 1.65 points per 10,000 characters of prompt, the expected reply");
+        assertEquals(1.65 * 7 + 3.6, e.predict(70_000, "continued"), 1e-9, "a continued chat has no start to pay");
+        assertEquals(0.3 * (3.4 + 1.65 * 7 + 3.6), e.predict(70_000, "new", "claude-haiku-5-5"), 1e-9, "Haiku costs about a third of Sonnet");
         e.observe("A", T0, 0.40, 0.02, RESET, "probe");
         // a lone call of 70,000 characters moved the gauge by 14 points while 15.4 were predicted
         var c = FreeLedgerTest.call(T0.plusSeconds(30), "A", 70_000, 0.40, 0.54);
@@ -71,8 +72,8 @@ class FreeEstimatorTest {
         assertEquals(15.4 - 14.0, r.lastError(), 1e-9, "predicted minus observed is kept: the error of the last prediction");
         assertEquals(1, r.errors());
         assertEquals(46, r.now(), 1e-9, "the call's own reading was applied once, the prediction is not added on top");
-        assertEquals(2.2 + 0.25 * (2.0 - 2.2), e.rate("new"), 1e-9, "the rate moved a quarter of the way to the observed 2.0 points per 10,000");
-        assertEquals(2.2, e.rate("continued"), 1e-9, "the other cache state has its own rate");
+        assertEquals(1.65 + 0.25 * (1.0 - 1.65), e.rate("claude-sonnet-5-5"), 1e-9, "14 observed minus the start (3.4) and the reply (3.6) leaves 7 points for 7 units: the rate moved a quarter of the way to 1.0");
+        assertEquals(1.65 * 0.3, e.rate("claude-haiku-5-5"), 1e-9, "Haiku has its own rate");
     }
 
     @Test void aCallThatOverlappedAnotherTeachesNothingBecauseItsGaugeMovementIsNotItsOwn() {
@@ -83,7 +84,7 @@ class FreeEstimatorTest {
         assertFalse(first.alone());
         assertFalse(second.alone());
         e.finish(first, new FreeLedger.Call(T0, "A", "m", 100_000, 25_000, "new", 200, 1, 0.0, 0.0, RESET, 0.30, 0.0, RESET, 22.0, 30.0, first.alone(), "s"));
-        assertEquals(2.2, e.rate("new"), 1e-9);
+        assertEquals(1.65, e.rate("claude-sonnet-5-5"), 1e-9);
         assertEquals(0, e.room("A", T0).errors());
     }
 
@@ -127,7 +128,7 @@ class FreeEstimatorTest {
             assertEquals(l.resetsAt(), r.resetsAt(), id + " reset");
             assertEquals(l.errors(), r.errors(), id + " prediction errors kept");
         }
-        assertEquals(live.rate("new"), back.rate("new"), 1e-9, "the learned rate comes back too");
+        assertEquals(live.rate("claude-sonnet-5-5"), back.rate("claude-sonnet-5-5"), 1e-9, "the learned rate comes back too");
         assertEquals(67.0, back.room("A", now).now(), 1e-9);
         assertEquals(20.0, back.room("B", now).now(), 1e-9, "the later probe reading wins over the predicted spend");
     }
@@ -174,10 +175,45 @@ class FreeEstimatorTest {
         assertEquals("B", e.place(List.of("A", "B"), 15.4, T0).account(), "A is held back by the first call (44.6 left), so B has more");
     }
 
+    // ---- PRP 78: what the free lane can carry at all
+
+    @Test void theCeilingIsWhatACompletelyUnloadedSonnetAccountTakesAsAnUncachedFirstCall() {
+        var e = est();
+        var ceiling = e.ceilingChars();
+        assertEquals((100 - 5 - 3.4 - 3.6) / 1.65 * 10_000, ceiling, 1e-6, "100 points, less the margin, the start of a chat and the reply, at 1.65 points per 10,000 characters");
+        assertTrue(ceiling > 520_000 && ceiling < 545_000, "about 530,000 characters: " + ceiling);
+        assertEquals(Math.round(ceiling / 5.4), e.claudeCodeTokens(ceiling), "in the tokens the Claude Code status line shows");
+        assertEquals(0.75 * ceiling, e.compactAtChars(), 1e-6, "compaction is advised at 75% of it");
+        assertTrue(e.predict(Math.round(ceiling), "new") <= 95.0001, "a request of exactly the ceiling is predicted to leave the margin");
+        assertTrue(e.predict(655_260, "new") > 100, "the 655,260 characters (121,176 tokens) of the resumed conversation are beyond any account");
+        assertTrue(e.maxChars(100, "claude-haiku-5-5") > 2 * ceiling, "Haiku takes much more");
+    }
+
+    @Test void whatFitsShrinksWithTheLoadOfTheAccount() {
+        var e = est();
+        assertTrue(e.maxChars(100, EST_SONNET) > e.maxChars(60, EST_SONNET) && e.maxChars(60, EST_SONNET) > e.maxChars(20, EST_SONNET));
+        assertEquals((60 - 5 - 3.4 - 3.6) / 1.65 * 10_000, e.maxChars(60, EST_SONNET), 1e-6, "60 points left: the biggest uncached prompt");
+        assertEquals(0, e.maxChars(8, EST_SONNET), 1e-9, "too little left to start a chat at all");
+        var lines = String.join(" ", e.limitLines());
+        assertTrue(lines.contains("ceilingChars=") && lines.contains("ceilingTokens=") && lines.contains("compactTokens=") && lines.contains("haikuCeilingChars="), lines);
+    }
+
+    @Test void theLedgerLearnsHowMuchPromptTheProxyMakesOfABodyAndFitsGrowWithIt() {
+        var e = est();
+        e.observe("A", T0, 0.1, 0.0, RESET, "probe");
+        var before = e.ceilingChars();
+        e.finish(e.begin("A", 20), new FreeLedger.Call(T0.plusSeconds(5), "A", "claude-sonnet-5-5", 100_000, 25_000, "new", 200, 1, null, null, null, null, null, null, 20, null, true, "s", 80_000L));
+        assertEquals(1.0 + 0.25 * (0.8 - 1.0), e.promptPerBody(), 1e-9, "the prompt was 80% of the body");
+        assertTrue(e.ceilingChars() > before, "a body is cheaper than it looked: more fits");
+    }
+
+    static final String EST_SONNET = "claude-sonnet-5-5";
+
     @Test void theBestRoomAndTheNextResetAreReported() {
         var e = withRooms(Map.of("A", 70.0, "B", 40.0), Map.of("A", T0.getEpochSecond() + 600));
         assertEquals(60, e.bestRoom(List.of("A", "B"), T0), 1e-9);
-        assertEquals(Instant.ofEpochSecond(T0.getEpochSecond() + 600), e.nextReset(List.of("A", "B"), T0).orElseThrow());
+        assertEquals(Instant.ofEpochSecond(T0.getEpochSecond() + 600), e.nextReset(List.of("A", "B"), T0).orElseThrow().at());
+        assertEquals("A", e.nextReset(List.of("A", "B"), T0).orElseThrow().account(), "and on which account");
         assertEquals(-1, e.bestRoom(List.of(), T0));
     }
 }

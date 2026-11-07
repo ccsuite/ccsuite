@@ -48,7 +48,8 @@ final class FreeEstimator {
 
     final LaneSettings settings;
     private final Map<String, Acc> accs = new HashMap<>();
-    private final Map<String, Double> rates = new HashMap<>();
+    private final Map<String, Double> rates = new HashMap<>();   // by model family
+    private double promptPerBody = 1.0;
     private double weekRatio = SEED_WEEK_RATIO;
 
     FreeEstimator(LaneSettings settings) { this.settings = settings; }
@@ -64,10 +65,61 @@ final class FreeEstimator {
 
     // ---- prediction
 
-    synchronized double rate(String cache) { return rates.getOrDefault(cache == null ? "new" : cache, settings.pointsPer10kChars()); }
+    /** The model every limit is stated for: the biggest first call is measured on Sonnet 5.5 (the user's decision, PRP 78). */
+    static final String SONNET = "claude-sonnet-5-5";
 
-    /** Points of the five-hour window a request of this size is predicted to cost. */
-    synchronized double predict(long chars, String cache) { return Math.max(MIN_CALL_POINTS, rate(cache) * chars / 10_000.0); }
+    static String family(String model) { return model != null && model.toLowerCase().contains("haiku") ? "haiku" : "sonnet"; }
+
+    private double factor(String family) { return family.equals("haiku") ? settings.haikuFactor() : 1.0; }
+
+    /** Points per 10,000 characters of prompt for this model (the setting, scaled for Haiku, then learned from the ledger). */
+    synchronized double rate(String model) { var f = family(model); return rates.getOrDefault(f, settings.pointsPer10kChars() * factor(f)); }
+
+    /** Prompt characters the proxy builds per character of request body (1.0 until the ledger has measured it). */
+    synchronized double promptPerBody() { return promptPerBody; }
+
+    private double fixed(String model, String cache) { return "new".equals(cache) || cache == null ? settings.firstCallPoints() * factor(family(model)) : 0; }
+
+    private double reply(String model) { return settings.expectedReplyPoints() * factor(family(model)); }
+
+    /** Points of the five-hour window a request with a body of this size is predicted to cost: a new chat costs its start plus its prompt, a continued one only what is new; both the expected reply. */
+    synchronized double predict(long bodyChars, String cache, String model) {
+        return Math.max(MIN_CALL_POINTS, fixed(model, cache) + rate(model) * bodyChars * promptPerBody / 10_000.0 + reply(model));
+    }
+
+    synchronized double predict(long bodyChars, String cache) { return predict(bodyChars, cache, SONNET); }
+
+    /** The biggest request body (characters) a new chat can start with when this much room is left, keeping the margin: what fits. */
+    synchronized double maxChars(double roomPoints, String model) {
+        var left = roomPoints - settings.guardMarginPoints() - fixed(model, "new") - reply(model);
+        return Math.max(0, left / rate(model) * 10_000.0 / promptPerBody);
+    }
+
+    /** The largest first call, uncached, a completely unloaded free account can take on Sonnet 5.5: the limit of the free lane's context. */
+    double ceilingChars() { return maxChars(100, SONNET); }
+
+    /** Where Claude Code should compact: this fraction of the ceiling. */
+    double compactAtChars() { return settings.compactAtFraction() * ceilingChars(); }
+
+    /** Request characters as the tokens Claude Code's status line shows. */
+    long claudeCodeTokens(double chars) { return Math.round(chars / settings.charsPerClaudeCodeToken()); }
+
+    /** The limit in words, for the status command. */
+    String limitText() {
+        return String.format("free lane limit: a first call, uncached, up to about %,d characters (~%,d tokens as Claude Code counts them) on Sonnet 5.5 on a completely unloaded account (Haiku about %,d characters); Claude Code is told to compact at about %,d tokens",
+                Math.round(ceilingChars()), claudeCodeTokens(ceilingChars()), Math.round(maxChars(100, "claude-haiku-5-5")), claudeCodeTokens(compactAtChars()));
+    }
+
+    /** The limits as {@code key=value} lines (for the launcher) and as text: read-only. */
+    List<String> limitLines() {
+        var ceiling = ceilingChars();
+        return List.of(
+            "ceilingChars=" + Math.round(ceiling),
+            "ceilingTokens=" + claudeCodeTokens(ceiling),
+            "compactChars=" + Math.round(compactAtChars()),
+            "compactTokens=" + claudeCodeTokens(compactAtChars()),
+            "haikuCeilingChars=" + Math.round(maxChars(100, "claude-haiku-5-5")));
+    }
 
     // ---- state
 
@@ -170,17 +222,23 @@ final class FreeEstimator {
     }
 
     private void learn(FreeLedger.Call c) {
-        if (c.account() == null || c.status() >= 400 || c.observed() == null || !c.alone()) return;
+        if (c.account() == null || c.status() >= 400) return;
+        if ("new".equals(c.cache()) && c.promptChars() != null && c.chars() >= 20_000) {   // how much prompt the proxy makes of a body: the cost follows the prompt
+            var ratio = Math.max(0.3, Math.min(1.5, (double) c.promptChars() / c.chars()));
+            promptPerBody += ALPHA * (ratio - promptPerBody);
+        }
+        if (c.observed() == null || !c.alone()) return;
         var a = acc(c.account());
         a.errors.addLast(c.predicted() - c.observed());
         while (a.errors.size() > KEEP_ERRORS) a.errors.removeFirst();
-        var units = c.chars() / 10_000.0;
+        var f = family(c.model());
+        var units = (c.promptChars() != null ? c.promptChars() : c.chars() * promptPerBody) / 10_000.0;
         if (units < 1.0 || c.observed() < 1.0) return;   // the gauge moves in steps of one point: a smaller movement is noise
-        var seed = settings.pointsPer10kChars();
-        var cache = c.cache() == null ? "new" : c.cache();
-        var fresh = Math.max(seed * 0.2, Math.min(seed * 5, c.observed() / units));
-        var old = rates.getOrDefault(cache, seed);
-        rates.put(cache, old + ALPHA * (fresh - old));
+        var seed = settings.pointsPer10kChars() * factor(f);
+        var own = c.observed() - fixed(c.model(), c.cache()) - reply(c.model());   // what is left for the prompt itself
+        var fresh = Math.max(seed * 0.2, Math.min(seed * 5, own / units));
+        var old = rates.getOrDefault(f, seed);
+        rates.put(f, old + ALPHA * (fresh - old));
     }
 
     // ---- answers
@@ -221,17 +279,20 @@ final class FreeEstimator {
     /** The most predicted room among these accounts (100 for one never read), -1 when there are none. */
     double bestRoom(List<String> ids, Instant now) { return ids.stream().mapToDouble(id -> room(id, now).predicted()).max().orElse(-1); }
 
-    /** The next five-hour reset among these accounts: when room comes back. */
-    Optional<Instant> nextReset(List<String> ids, Instant now) {
-        return ids.stream().map(id -> room(id, now).resetsAt()).filter(Objects::nonNull).min(Long::compare).map(Instant::ofEpochSecond);
+    /** An account and the moment its five-hour window resets. */
+    record Reset(String account, Instant at) {}
+
+    /** The soonest five-hour reset among these accounts: where, and when, room comes back. */
+    Optional<Reset> nextReset(List<String> ids, Instant now) {
+        return ids.stream().map(id -> room(id, now)).filter(r -> r.resetsAt() != null).min(Comparator.comparing(Room::resetsAt)).map(r -> new Reset(r.id(), Instant.ofEpochSecond(r.resetsAt())));
     }
 
     /** One line for the status command: room now and predicted, the gauge's own reading, the week, the reset, the error of the last predictions. */
-    static String line(Room r, Instant now) {
+    String line(Room r, Instant now) {
         if (!r.known()) return String.format("%-5s never read: room 100 assumed%s", r.id(), r.inFlight() > 0 ? ", " + r.inFlight() + " in flight" : "");
         var reset = r.resetsAt() == null ? "-" : FreeGauges.untilReset(r.resetsAt(), now);
         var err = r.errors() == 0 ? "no predictions checked yet" : String.format("last prediction error %+.1f, mean %.1f over %d", r.lastError(), r.meanAbsError(), r.errors());
-        return String.format("%-5s room now %3.0f  predicted %3.0f  (5h used %3.0f%%, week %3.0f%%)  resets in %-9s %d in flight; %s", r.id(), r.now(), r.predicted(), r.usedFive(), r.usedWeek(), reset, r.inFlight(), err);
+        return String.format("%-5s room now %3.0f  predicted %3.0f  (5h used %3.0f%%, week %3.0f%%)  resets in %-9s %d in flight; %s", r.id(), r.now(), r.predicted(), r.usedFive(), r.usedWeek(), reset, r.inFlight(), err) + String.format("; takes a first call up to %,d chars (~%,d tokens)", Math.round(maxChars(r.predicted(), SONNET)), claudeCodeTokens(maxChars(r.predicted(), SONNET)));
     }
 
     /** The estimator as the ledger left it. */

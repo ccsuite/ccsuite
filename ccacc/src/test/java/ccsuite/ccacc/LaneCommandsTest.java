@@ -76,6 +76,9 @@ class LaneCommandsTest {
         assertTrue(c.run(List.of("lanes", "open")).message().contains("not running"));
         assertTrue(c.run(List.of("lanes", "drain")).message().startsWith("idle"));
         assertFalse(c.run(List.of("lanes", "hold", "on")).ok(), "a hold needs the running app");
+        var limits = c.run(List.of("lanes", "limits"));
+        assertTrue(limits.ok() && limits.message().contains("ceilingChars=") && limits.message().contains("compactTokens="), limits.message());
+        assertTrue(text.contains("free lane limit: a first call, uncached, up to about"), text);
         assertFalse(Files.exists(dir.resolve("settings.json")), "no settings were written");
         assertEquals(before, FreeLedgerTest.names(dir.resolve("ledger")), "no ledger file was added or removed");
         assertEquals(1, ledger.calls(null).size());

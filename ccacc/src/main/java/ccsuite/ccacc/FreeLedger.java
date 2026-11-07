@@ -16,12 +16,18 @@ final class FreeLedger {
     /**
      * One served call. {@code before*} is the gauge table's reading of the account when its answer began (null when never read), {@code after*} the reading the answer carried
      * (null when it carried none). {@code predicted} is the estimator's cost in points of the five-hour window, {@code observed} the points the gauge actually moved
-     * (null when it cannot be told), {@code alone} whether no other call overlapped on that account (only then is {@code observed} the cost of this call).
+     * (null when it cannot be told), {@code alone} whether no other call overlapped on that account (only then is {@code observed} the cost of this call). {@code chars} is the size of the request body; {@code promptChars} the size of the prompt the proxy built from it (what the web is charged for; null when not told).
      * {@code cache}: "new" (a chat starts, the whole conversation is sent) or "continued" (a chat the lane holds, only what is new is sent).
      */
     record Call(Instant t, String account, String model, long chars, long tokens, String cache, int status, long ms,
                 Double before5, Double before7, Long reset5Before, Double after5, Double after7, Long reset5After,
-                double predicted, Double observed, boolean alone, String session) {
+                double predicted, Double observed, boolean alone, String session, Long promptChars) {
+
+        /** A call whose prompt size is not known (the proxy did not say). */
+        Call(Instant t, String account, String model, long chars, long tokens, String cache, int status, long ms, Double before5, Double before7, Long reset5Before,
+             Double after5, Double after7, Long reset5After, double predicted, Double observed, boolean alone, String session) {
+            this(t, account, model, chars, tokens, cache, status, ms, before5, before7, reset5Before, after5, after7, reset5After, predicted, observed, alone, session, null);
+        }
 
         Map<String, Object> toMap() {
             var m = new LinkedHashMap<String, Object>();
@@ -43,13 +49,14 @@ final class FreeLedger {
             m.put("observed", observed);
             m.put("alone", alone);
             m.put("session", session);
+            m.put("promptChars", promptChars);
             return m;
         }
 
         static Call of(JsonNode j) {
             return new Call(Instant.parse(j.path("t").asText()), text(j, "account"), text(j, "model"), j.path("chars").asLong(), j.path("tokens").asLong(), text(j, "cache"),
                     j.path("status").asInt(), j.path("ms").asLong(), dbl(j, "before5"), dbl(j, "before7"), lng(j, "reset5Before"), dbl(j, "after5"), dbl(j, "after7"), lng(j, "reset5After"),
-                    j.path("predicted").asDouble(), dbl(j, "observed"), j.path("alone").asBoolean(), text(j, "session"));
+                    j.path("predicted").asDouble(), dbl(j, "observed"), j.path("alone").asBoolean(), text(j, "session"), lng(j, "promptChars"));
         }
     }
 

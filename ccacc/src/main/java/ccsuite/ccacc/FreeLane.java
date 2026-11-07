@@ -43,7 +43,7 @@ final class FreeLane implements Lane {
     final AtomicLong callSeq = new AtomicLong();
 
     /** The header a request carries to the proxy to say where a new conversation should go (the account with the most predicted room), and the one the proxy answers with to say where it went. */
-    static final String PLACE_HEADER = "x-ccacc-place", ACCOUNT_HEADER = "x-ccacc-account";
+    static final String PLACE_HEADER = "x-ccacc-place", ACCOUNT_HEADER = "x-ccacc-account", PROMPT_HEADER = "x-ccacc-prompt-chars";
 
     FreeLane(FreeGauges gauges, Supplier<List<CCAPICredential>> accounts, LaneSettings settings) { this(gauges, accounts, settings, null); }
 
@@ -149,8 +149,8 @@ final class FreeLane implements Lane {
                 return Result.done(502);
             }
             var status = res.statusCode();
-            if (call != null) call.reached(res.headers().firstValue(ACCOUNT_HEADER).orElse(null), status);
-            res.headers().map().forEach((k, vs) -> { if (!SKIP.contains(k.toLowerCase()) && !k.equalsIgnoreCase(ACCOUNT_HEADER)) vs.forEach(v -> ex.getResponseHeaders().add(k, v)); });
+            if (call != null) call.reached(res.headers().firstValue(ACCOUNT_HEADER).orElse(null), status, res.headers().firstValue(PROMPT_HEADER).orElse(null));
+            res.headers().map().forEach((k, vs) -> { if (!SKIP.contains(k.toLowerCase()) && !k.equalsIgnoreCase(ACCOUNT_HEADER) && !k.equalsIgnoreCase(PROMPT_HEADER)) vs.forEach(v -> ex.getResponseHeaders().add(k, v)); });
             ex.sendResponseHeaders(status, 0);
             try (var in = res.body(); var out = ex.getResponseBody()) {
                 var buf = new byte[8192];
@@ -177,6 +177,7 @@ final class FreeLane implements Lane {
         String place;
         volatile String account;
         volatile int status;
+        volatile Long promptChars;
         FreeEstimator.Token token;
         Double before5, before7;
         Long reset5Before;
@@ -184,8 +185,9 @@ final class FreeLane implements Lane {
         Call(String model, String session, String cache, long chars, double predicted) { this.model = model; this.session = session; this.cache = cache; this.chars = chars; this.predicted = predicted; }
 
         /** The proxy answered: which account it used (its response header) and with what status. The account's gauge as the table has it now is the "before" reading. */
-        void reached(String served, int status) {
+        void reached(String served, int status, String prompt) {
             this.status = status;
+            try { if (prompt != null) promptChars = Long.valueOf(prompt.trim()); } catch (NumberFormatException e) { /* not told */ }
             if (served == null) return;
             if (!served.equals(account)) expect(served);   // somewhere else than expected: held back and read there now
         }
@@ -217,7 +219,7 @@ final class FreeLane implements Lane {
         var last = key == null ? null : started.get(key);
         var chars = last == null ? body.length : Math.max(0, body.length - last);   // a chat the lane holds is sent only what is new
         var cache = last == null ? "new" : "continued";
-        var call = new Call(model, key == null ? "-" : key.substring(0, 8), cache, chars, estimator.predict(chars, cache));
+        var call = new Call(model, key == null ? "-" : key.substring(0, 8), cache, chars, estimator.predict(chars, cache, model));
         if (last == null) {
             var placed = estimator.place(chosen(), call.predicted, Instant.now());
             if (placed != null) { call.place = placed.account(); call.expect(placed.account()); }
@@ -239,7 +241,7 @@ final class FreeLane implements Lane {
             if (c.status < 400 && row != null && row.ok() && row.read().isAfter(c.start)) { after5 = row.five(); after7 = row.seven(); reset5After = row.resetsAt(); }   // the reply carried a gauge (or a probe read one meanwhile)
             var observed = FreeEstimator.observed(c.before5, after5, c.reset5Before, reset5After);
             var entry = new FreeLedger.Call(Instant.now(), c.account, c.model, c.chars, FreeEstimator.tokens(c.chars), c.cache, c.status, (System.nanoTime() - c.nanos) / 1_000_000,
-                    c.before5, c.before7, c.reset5Before, after5, after7, reset5After, c.predicted, observed, c.token == null || c.token.alone(), c.session);
+                    c.before5, c.before7, c.reset5Before, after5, after7, reset5After, c.predicted, observed, c.token == null || c.token.alone(), c.session, c.promptChars);
             estimator.finish(c.token, entry);
             if (ledger != null) ledger.append(entry);
         } catch (RuntimeException e) {
@@ -324,13 +326,36 @@ final class FreeLane implements Lane {
         var ids = chosen();
         if (ids.isEmpty()) return null;
         var now = Instant.now();
-        var need = estimator.predict(body.length, "new");
+        var model = modelOf(body);
+        var need = estimator.predict(body.length, "new", model);
         if (estimator.place(ids, need, now) != null) return null;
         var room = estimator.bestRoom(ids, now);
-        var back = estimator.nextReset(ids, now).map(t -> "room comes back with the next window reset, in about " + FreeGauges.untilReset(t.getEpochSecond(), now)).orElse("no window reset time is known yet");
-        var text = String.format("fclaude: this conversation is too long to start on the free lane now: about %,d characters, roughly %d points of a five-hour window, and the ledger predicts the free account with the most room has about %d points left (%s). "
-                + "Compact it first in claude or pclaude (/compact) and continue here, or start a new session in fclaude.", body.length, Math.round(need), Math.round(room), back);
+        var tokens = estimator.claudeCodeTokens(body.length);
+        var text = need > 100 - settings.guardMarginPoints()
+                ? beyondAnyAccount(body.length, tokens, need, model)
+                : waitForRoom(body.length, tokens, need, room, ids, now);
         return JSON.createObjectNode().put("type", "error").set("error", JSON.createObjectNode().put("type", "invalid_request_error").put("message", text)).toString();
+    }
+
+    static String modelOf(byte[] body) {
+        try { return JSON.readTree(body).path("model").asText(); } catch (Exception e) { return FreeEstimator.SONNET; }
+    }
+
+    /** No free account could take this first call even when completely unloaded: say the limit, and that a compaction (or Haiku, when it would fit) is the way. */
+    private String beyondAnyAccount(long chars, long tokens, double need, String model) {
+        var limit = estimator.ceilingChars();
+        var haikuNeed = estimator.predict(chars, "new", "claude-haiku-5-5");
+        var haiku = FreeEstimator.family(model).equals("sonnet") && haikuNeed <= 100 - settings.guardMarginPoints() ? " It would fit on Haiku: start fclaude with --model haiku." : "";
+        return String.format("fclaude: this conversation is too long to start on the free lane, on any free account: about %,d characters (~%,d tokens), roughly %d points of a five-hour window, and a completely unloaded account has 100. "
+                + "The most the free lane can take as a first call, uncached, is about %,d characters (~%,d tokens on Sonnet 5.5). Compact it first in claude or pclaude (/compact) and continue here, or start a new session in fclaude.%s",
+                chars, tokens, Math.round(need), Math.round(limit), estimator.claudeCodeTokens(limit), haiku);
+    }
+
+    /** It fits an unloaded account but none has the room now: say which one gets it back first, and when. */
+    private String waitForRoom(long chars, long tokens, double need, double room, List<String> ids, Instant now) {
+        var back = estimator.nextReset(ids, now).map(r -> "room comes back with the next window reset, in about " + FreeGauges.untilReset(r.at().getEpochSecond(), now) + ", on " + r.account()).orElse("no window reset time is known yet");
+        return String.format("fclaude: this conversation is too long to start on the free lane now: about %,d characters (~%,d tokens), roughly %d points of a five-hour window, and the ledger predicts the free account with the most room has about %d points left (%s). "
+                + "Wait for that, or start a new session in fclaude. Compact it first in claude or pclaude (/compact) to continue this one here.", chars, tokens, Math.round(need), Math.round(room), back);
     }
 
     /** The free lane's account lines for the status command: room now and predicted (the ledger's estimate), the last gauge read, the week, the reset, the error of the last predictions. */
@@ -341,7 +366,7 @@ final class FreeLane implements Lane {
         gauges.snapshot().forEach(r -> byId.put(r.id(), r));
         return estimator.rooms(chosen(), now).stream().map(r -> {
             var row = byId.get(r.id());
-            return "  " + FreeEstimator.line(r, now) + (row == null ? "" : "; gauge read " + FreeGauges.percent(row.five()).strip() + ", " + FreeGauges.ago(row.read(), now));
+            return "  " + estimator.line(r, now) + (row == null ? "" : "; gauge read " + FreeGauges.percent(row.five()).strip() + ", " + FreeGauges.ago(row.read(), now));
         }).toList();
     }
 
