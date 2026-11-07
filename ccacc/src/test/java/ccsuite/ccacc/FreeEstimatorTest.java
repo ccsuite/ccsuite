@@ -59,9 +59,9 @@ class FreeEstimatorTest {
 
     @Test void theCostIsPredictedFromSizeAndCacheStateAndLearnedFromTheCallsGaugeMovement() {
         var e = est();
-        assertEquals(3.4 + 1.65 * 7 + 3.6, e.predict(70_000, "new"), 1e-9, "a new chat: its start, 1.65 points per 10,000 characters of prompt, the expected reply");
-        assertEquals(1.65 * 7 + 3.6, e.predict(70_000, "continued"), 1e-9, "a continued chat has no start to pay");
-        assertEquals(0.3 * (3.4 + 1.65 * 7 + 3.6), e.predict(70_000, "new", "claude-haiku-5-5"), 1e-9, "Haiku costs about a third of Sonnet");
+        assertEquals(0.3 + 0.6 * 7 + 0.7, e.predict(70_000, "new"), 1e-9, "a new chat: its start, 0.6 points per 10,000 characters of prompt, the expected reply");
+        assertEquals(0.6 * 7 + 0.7, e.predict(70_000, "continued"), 1e-9, "a continued chat has no start to pay");
+        assertEquals(0.3 * (0.3 + 0.6 * 7 + 0.7), e.predict(70_000, "new", "claude-haiku-5-5"), 1e-9, "Haiku costs about a third of Sonnet");
         e.observe("A", T0, 0.40, 0.02, RESET, "probe");
         // a lone call of 70,000 characters moved the gauge by 14 points while 15.4 were predicted
         var c = FreeLedgerTest.call(T0.plusSeconds(30), "A", 70_000, 0.40, 0.54);
@@ -72,8 +72,8 @@ class FreeEstimatorTest {
         assertEquals(15.4 - 14.0, r.lastError(), 1e-9, "predicted minus observed is kept: the error of the last prediction");
         assertEquals(1, r.errors());
         assertEquals(46, r.now(), 1e-9, "the call's own reading was applied once, the prediction is not added on top");
-        assertEquals(1.65 + 0.25 * (1.0 - 1.65), e.rate("claude-sonnet-5-5"), 1e-9, "14 observed minus the start (3.4) and the reply (3.6) leaves 7 points for 7 units: the rate moved a quarter of the way to 1.0");
-        assertEquals(1.65 * 0.3, e.rate("claude-haiku-5-5"), 1e-9, "Haiku has its own rate");
+        assertEquals(0.6 + 0.25 * (13.0 / 7 - 0.6), e.rate("claude-sonnet-5-5"), 1e-9, "14 observed minus the start (0.3) and the reply (0.7) leaves 13 points for 7 units: the rate moved a quarter of the way to 1.857");
+        assertEquals(0.6 * 0.3, e.rate("claude-haiku-5-5"), 1e-9, "Haiku has its own rate");
     }
 
     @Test void aCallThatOverlappedAnotherTeachesNothingBecauseItsGaugeMovementIsNotItsOwn() {
@@ -84,7 +84,7 @@ class FreeEstimatorTest {
         assertFalse(first.alone());
         assertFalse(second.alone());
         e.finish(first, new FreeLedger.Call(T0, "A", "m", 100_000, 25_000, "new", 200, 1, 0.0, 0.0, RESET, 0.30, 0.0, RESET, 22.0, 30.0, first.alone(), "s"));
-        assertEquals(1.65, e.rate("claude-sonnet-5-5"), 1e-9);
+        assertEquals(0.6, e.rate("claude-sonnet-5-5"), 1e-9);
         assertEquals(0, e.room("A", T0).errors());
     }
 
@@ -177,25 +177,29 @@ class FreeEstimatorTest {
 
     // ---- PRP 78: what the free lane can carry at all
 
-    @Test void theCeilingIsWhatACompletelyUnloadedSonnetAccountTakesAsAnUncachedFirstCall() {
+    @Test void theZonesAreTheMeasuredWindowLessTheRoomToSummariseIt() {
         var e = est();
+        assertEquals(2.0, e.summaryReserve(), 1e-9, "a summary of 20% of the input, in output tokens that cost 5 input tokens each: the input counts twice");
+        assertEquals(680_000, e.windowInputTokens(), "a completely unloaded account takes about 680,000 input tokens per window (measured 660,000 to 770,000)");
+        assertEquals(340_000, e.actualMaxInputTokens(), "the largest conversation that is safe to start");
+        assertEquals(170_000, e.workZoneTokens(), "work freely up to here, then close the cycle; Claude Code compacts here");
         var ceiling = e.ceilingChars();
-        assertEquals((100 - 5 - 3.4 - 3.6) / 1.65 * 10_000, ceiling, 1e-6, "100 points, less the margin, the start of a chat and the reply, at 1.65 points per 10,000 characters");
-        assertTrue(ceiling > 520_000 && ceiling < 545_000, "about 530,000 characters: " + ceiling);
-        assertEquals(Math.round(ceiling / 5.4), e.claudeCodeTokens(ceiling), "in the tokens the Claude Code status line shows");
-        assertEquals(0.75 * ceiling, e.compactAtChars(), 1e-6, "compaction is advised at 75% of it");
-        assertTrue(e.predict(Math.round(ceiling), "new") <= 95.0001, "a request of exactly the ceiling is predicted to leave the margin");
-        assertTrue(e.predict(655_260, "new") > 100, "the 655,260 characters (121,176 tokens) of the resumed conversation are beyond any account");
+        assertEquals((100 - 5 - 0.3 - 0.7) / 2 / 0.6 * 10_000, ceiling, 1e-6, "100 points, less the margin, the start and the reply, halved for the summary, at 0.6 points per 10,000 characters");
+        assertEquals(Math.round(ceiling / 2.6), e.claudeCodeTokens(ceiling), "characters over 2.6: the real tokenizer's figure for code and prose");
+        assertTrue(e.predictStart(Math.round(ceiling), "claude-sonnet-5-5") <= 95.0001, "a request of exactly the ceiling is predicted to leave the margin");
+        var resumed = e.predictStart(655_260, "claude-sonnet-5-5");
+        assertTrue(resumed > 60 && resumed < 95, "the 655,260 characters of the resumed conversation fit an unloaded account (" + resumed + " points with the summary reserve), not one that is 40% used");
+        assertTrue(e.predictStart(1_800_000, "claude-sonnet-5-5") > 95, "1,800,000 characters are beyond any account");
         assertTrue(e.maxChars(100, "claude-haiku-5-5") > 2 * ceiling, "Haiku takes much more");
     }
 
     @Test void whatFitsShrinksWithTheLoadOfTheAccount() {
         var e = est();
         assertTrue(e.maxChars(100, EST_SONNET) > e.maxChars(60, EST_SONNET) && e.maxChars(60, EST_SONNET) > e.maxChars(20, EST_SONNET));
-        assertEquals((60 - 5 - 3.4 - 3.6) / 1.65 * 10_000, e.maxChars(60, EST_SONNET), 1e-6, "60 points left: the biggest uncached prompt");
-        assertEquals(0, e.maxChars(8, EST_SONNET), 1e-9, "too little left to start a chat at all");
+        assertEquals((60 - 5 - 0.3 - 0.7) / 2 / 0.6 * 10_000, e.maxChars(60, EST_SONNET), 1e-6, "60 points left: the biggest uncached prompt that leaves room for its summary");
+        assertEquals(0, e.maxChars(5, EST_SONNET), 1e-9, "too little left to start a chat at all");
         var lines = String.join(" ", e.limitLines());
-        assertTrue(lines.contains("ceilingChars=") && lines.contains("ceilingTokens=") && lines.contains("compactTokens=") && lines.contains("haikuCeilingChars="), lines);
+        assertTrue(lines.contains("contextLimitTokens=874453") && lines.contains("windowInputTokens=680000") && lines.contains("actualMaxInputTokens=340000") && lines.contains("workZoneTokens=170000") && lines.contains("compactTokens=170000") && lines.contains("haikuCeilingChars="), lines);
     }
 
     @Test void theLedgerLearnsHowMuchPromptTheProxyMakesOfABodyAndFitsGrowWithIt() {

@@ -221,7 +221,7 @@ final class FreeLane implements Lane {
         var cache = last == null ? "new" : "continued";
         var call = new Call(model, key == null ? "-" : key.substring(0, 8), cache, chars, estimator.predict(chars, cache, model));
         if (last == null) {
-            var placed = estimator.place(chosen(), call.predicted, Instant.now());
+            var placed = estimator.place(chosen(), estimator.predictStart(chars, model), Instant.now());
             if (placed != null) { call.place = placed.account(); call.expect(placed.account()); }
         } else {
             var where = sessionAccount.get(key);   // a chat the lane holds is on the account that served its last call
@@ -327,11 +327,11 @@ final class FreeLane implements Lane {
         if (ids.isEmpty()) return null;
         var now = Instant.now();
         var model = modelOf(body);
-        var need = estimator.predict(body.length, "new", model);
+        var need = estimator.predictStart(body.length, model);   // with the room to summarise it afterwards
         if (estimator.place(ids, need, now) != null) return null;
         var room = estimator.bestRoom(ids, now);
         var tokens = estimator.claudeCodeTokens(body.length);
-        var text = need > 100 - settings.guardMarginPoints()
+        var text = tokens > settings.contextLimitTokens() || need > 100 - settings.guardMarginPoints()
                 ? beyondAnyAccount(body.length, tokens, need, model)
                 : waitForRoom(body.length, tokens, need, room, ids, now);
         return JSON.createObjectNode().put("type", "error").set("error", JSON.createObjectNode().put("type", "invalid_request_error").put("message", text)).toString();
@@ -344,11 +344,11 @@ final class FreeLane implements Lane {
     /** No free account could take this first call even when completely unloaded: say the limit, and that a compaction (or Haiku, when it would fit) is the way. */
     private String beyondAnyAccount(long chars, long tokens, double need, String model) {
         var limit = estimator.ceilingChars();
-        var haikuNeed = estimator.predict(chars, "new", "claude-haiku-5-5");
-        var haiku = FreeEstimator.family(model).equals("sonnet") && haikuNeed <= 100 - settings.guardMarginPoints() ? " It would fit on Haiku: start fclaude with --model haiku." : "";
-        return String.format("fclaude: this conversation is too long to start on the free lane, on any free account: about %,d characters (~%,d tokens), roughly %d points of a five-hour window, and a completely unloaded account has 100. "
-                + "The most the free lane can take as a first call, uncached, is about %,d characters (~%,d tokens on Sonnet 5.5). Compact it first in claude or pclaude (/compact) and continue here, or start a new session in fclaude.%s",
-                chars, tokens, Math.round(need), Math.round(limit), estimator.claudeCodeTokens(limit), haiku);
+        var haikuNeed = estimator.predictStart(chars, "claude-haiku-5-5");
+        var haiku = FreeEstimator.family(model).equals("sonnet") && tokens <= settings.contextLimitTokens() && haikuNeed <= 100 - settings.guardMarginPoints() ? " It would fit on Haiku: start fclaude with --model haiku." : "";
+        return String.format("fclaude: this conversation is too long to start on the free lane, on any free account: about %,d characters (~%,d tokens), roughly %d points of the 100 a completely unloaded account has, counting the room to summarise it afterwards. "
+                + "The most the free lane can safely start is about %,d characters (~%,d tokens) on Sonnet 5.5, and the server itself refuses a request over %,d tokens. Compact it first in claude or pclaude (/compact) and continue here, or start a new session in fclaude.%s",
+                chars, tokens, Math.round(need), Math.round(limit), estimator.claudeCodeTokens(limit), Math.round(settings.contextLimitTokens()), haiku);
     }
 
     /** It fits an unloaded account but none has the room now: say which one gets it back first, and when. */

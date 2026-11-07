@@ -32,9 +32,9 @@ set "ANTHROPIC_DEFAULT_OPUS_MODEL=claude-sonnet-5-5"
 set "ANTHROPIC_SMALL_FAST_MODEL=claude-haiku-5-5"
 if defined CCACC_JOB set "ANTHROPIC_CUSTOM_HEADERS=x-ccacc-job: %CCACC_JOB%"
 
-REM Compaction (PRP 78): the free lane cannot start a chat with more than the largest first call an unloaded account takes on Sonnet 5.5 (about 530,000 characters, ~98,000 tokens as Claude Code counts them),
-REM so Claude Code is told to compact at 75% of that. The number is the lane's own (ccacc lanes limits, learned from its ledger); 70000 tokens when ccacc cannot say.
-set "CLAUDE_CODE_AUTO_COMPACT_WINDOW=70000"
+REM Compaction (PRP 78): Claude Code is told to compact where the work zone ends: a conversation is worked in up to a quarter of what an unloaded free account takes per window (680,000 input tokens, measured),
+REM because the rest is kept for the summary that closes it (workZoneTokens, 170000). The number is the lane own (ccacc lanes limits); 170000 when ccacc cannot say.
+set "CLAUDE_CODE_AUTO_COMPACT_WINDOW=170000"
 for /f "tokens=2 delims==" %%t in ('ccacc lanes limits 2^>nul ^| findstr /b compactTokens') do set "CLAUDE_CODE_AUTO_COMPACT_WINDOW=%%t"
 
 claude --settings "%~dp0fclaude-settings.json" --strict-mcp-config --mcp-config "%~dp0fclaude-mcp.json" --append-system-prompt "This is fclaude: Claude Code on a plan that does not support the Opus model." %*

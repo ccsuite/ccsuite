@@ -89,35 +89,51 @@ final class FreeEstimator {
 
     synchronized double predict(long bodyChars, String cache) { return predict(bodyChars, cache, SONNET); }
 
-    /** The biggest request body (characters) a new chat can start with when this much room is left, keeping the margin: what fits. */
+    /** A new conversation must leave room to summarise itself: the summary is about {@code summaryShare} of the input in OUTPUT tokens, and an output token costs {@code outputWeight} input tokens (measured 4.0 to 4.6, the PRP uses 5). So the input counts this many times when starting: 2.0 with the defaults. */
+    double summaryReserve() { return 1 + settings.summaryShare() * settings.outputWeight(); }
+
+    /** The cost to hold back when a NEW conversation is placed or guarded: its start, its prompt counted with the summary reserve, the reply. */
+    synchronized double predictStart(long bodyChars, String model) {
+        return fixed(model, "new") + rate(model) * bodyChars * promptPerBody * summaryReserve() / 10_000.0 + reply(model);
+    }
+
+    /** The biggest request body (characters) a new chat can start with when this much room is left, keeping the margin and the summary reserve: what fits. */
     synchronized double maxChars(double roomPoints, String model) {
         var left = roomPoints - settings.guardMarginPoints() - fixed(model, "new") - reply(model);
-        return Math.max(0, left / rate(model) * 10_000.0 / promptPerBody);
+        return Math.max(0, left / summaryReserve() / rate(model) * 10_000.0 / promptPerBody);
     }
 
-    /** The largest first call, uncached, a completely unloaded free account can take on Sonnet 5.5: the limit of the free lane's context. */
+    /** The largest first call, uncached, with room to summarise it, that a completely unloaded free account takes on Sonnet 5.5. */
     double ceilingChars() { return maxChars(100, SONNET); }
 
-    /** Where Claude Code should compact: this fraction of the ceiling. */
-    double compactAtChars() { return settings.compactAtFraction() * ceilingChars(); }
-
-    /** Request characters as the tokens Claude Code's status line shows. */
+    /** Tokens of a request body: characters over {@code charsPerClaudeCodeToken} (measured 2.6 for code and prose, 2.0 for JSON, with the real tokenizer). */
     long claudeCodeTokens(double chars) { return Math.round(chars / settings.charsPerClaudeCodeToken()); }
 
-    /** The limit in words, for the status command. */
+    /** The input tokens a completely unloaded account takes in one window, uncached (measured: 660,000 to 770,000). */
+    long windowInputTokens() { return Math.round(settings.windowInputTokens()); }
+
+    /** The largest conversation that can safely be started: the window, less the reserve to summarise it. */
+    long actualMaxInputTokens() { return Math.round(settings.windowInputTokens() / summaryReserve()); }
+
+    /** Work freely up to here; between here and {@link #actualMaxInputTokens()} close the cycle (PRP status, new conversation). Claude Code is told to compact here. */
+    long workZoneTokens() { return actualMaxInputTokens() / 2; }
+
+    /** The limits in words, for the status command. */
     String limitText() {
-        return String.format("free lane limit: a first call, uncached, up to about %,d characters (~%,d tokens as Claude Code counts them) on Sonnet 5.5 on a completely unloaded account (Haiku about %,d characters); Claude Code is told to compact at about %,d tokens",
-                Math.round(ceilingChars()), claudeCodeTokens(ceilingChars()), Math.round(maxChars(100, "claude-haiku-5-5")), claudeCodeTokens(compactAtChars()));
+        return String.format("free lane limits (Sonnet 5.5, nothing cached): one request up to %,d tokens (the server's context limit); a completely unloaded account takes about %,d input tokens per window; a conversation is safe to start up to %,d tokens (the rest is kept for the summary), to work in up to %,d, and Claude Code is told to compact there",
+                Math.round(settings.contextLimitTokens()), windowInputTokens(), actualMaxInputTokens(), workZoneTokens());
     }
 
-    /** The limits as {@code key=value} lines (for the launcher) and as text: read-only. */
+    /** The limits as {@code key=value} lines (for the launcher): read-only. */
     List<String> limitLines() {
-        var ceiling = ceilingChars();
         return List.of(
-            "ceilingChars=" + Math.round(ceiling),
-            "ceilingTokens=" + claudeCodeTokens(ceiling),
-            "compactChars=" + Math.round(compactAtChars()),
-            "compactTokens=" + claudeCodeTokens(compactAtChars()),
+            "contextLimitTokens=" + Math.round(settings.contextLimitTokens()),
+            "windowInputTokens=" + windowInputTokens(),
+            "actualMaxInputTokens=" + actualMaxInputTokens(),
+            "workZoneTokens=" + workZoneTokens(),
+            "compactTokens=" + workZoneTokens(),
+            "ceilingChars=" + Math.round(ceilingChars()),
+            "ceilingTokens=" + claudeCodeTokens(ceilingChars()),
             "haikuCeilingChars=" + Math.round(maxChars(100, "claude-haiku-5-5")));
     }
 

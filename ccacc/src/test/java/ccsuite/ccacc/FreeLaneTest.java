@@ -229,7 +229,7 @@ class FreeLaneTest {
         assertEquals(0.55, c.after5(), 1e-9);
         assertEquals(RESETS, c.reset5After());
         assertEquals(15.0, c.observed(), 1e-9, "the gauge moved by 15 points");
-        assertEquals(3.4 + 1.65 * body.length / 10_000.0 + 3.6, c.predicted(), 1e-9);
+        assertEquals(0.3 + 0.6 * body.length / 10_000.0 + 0.7, c.predicted(), 1e-9);
         assertEquals(body.length - 1000L, c.promptChars(), "the prompt size the proxy reported");
         assertTrue(c.alone());
         var corrections = l.ledger.corrections(null);
@@ -250,7 +250,7 @@ class FreeLaneTest {
         await(() -> l1.ledger.calls(null).size() == 2);
         var now = Instant.now();
         var before = l1.estimator.room("A", now);
-        assertTrue(before.now() < 45 - 6, "the second call is in the room: " + before);
+        assertTrue(before.now() < 45 - 2, "the second call is in the room: " + before);
         var l2 = ledgered(dir, accounts);   // a new process over the same files
         var after = l2.estimator.room("A", now);
         assertEquals(before.now(), after.now(), 1e-9, "the same room read back");
@@ -285,16 +285,20 @@ class FreeLaneTest {
         assertTrue(refusal.matches("(?s).*room comes back with the next window reset, in about \\d+ min.*"), refusal);
     }
 
-    @Test void theResumedConversationOf655kCharactersIsBeyondAnyAccountAndTheMessageSaysSoWithTheLimit(@TempDir Path dir) throws Exception {
+    @Test void aConversationBeyondEveryAccountIsRefusedWithTheLimitAndAWayOut(@TempDir Path dir) throws Exception {
         var l = ledgered(dir, List.of(account("A", 0, true, false), account("B", 0, true, false)));
         read(l, "A", 0.0);
         read(l, "B", 0.0);
-        var refusal = l.guard(conversation("resumed", 655_260));
-        assertNotNull(refusal, "the 2026-11-07 case: 655,260 characters (121,176 tokens) cannot be a first call on any free account, however empty");
-        assertTrue(refusal.contains("on any free account") && refusal.contains("completely unloaded account has 100"), refusal);
-        assertTrue(refusal.matches("(?s).*most the free lane can take as a first call, uncached, is about [0-9,]+ characters \\(~[0-9,]+ tokens on Sonnet 5.5\\).*"), refusal);
+        assertNull(l.guard(conversation("resumed", 655_260)), "the 2026-11-07 case, 655,260 characters, fits a completely unloaded account (about 80 points with the room to summarise it)");
+        var refusal = l.guard(conversation("huge", 1_800_000));
+        assertNotNull(refusal);
+        assertTrue(refusal.contains("on any free account") && refusal.contains("counting the room to summarise it"), refusal);
+        assertTrue(refusal.matches("(?s).*most the free lane can safely start is about [0-9,]+ characters \\(~[0-9,]+ tokens\\) on Sonnet 5.5, and the server itself refuses a request over 874,453 tokens.*"), refusal);
         assertTrue(refusal.contains("Compact it first") && refusal.contains("--model haiku"), "it says to compact, and that Haiku would fit: " + refusal);
         assertFalse(refusal.contains("room comes back"), "waiting would not help: " + refusal);
+        var overContext = l.guard(conversation("enormous", 2_500_000));
+        assertNotNull(overContext, "about 960,000 tokens: the server refuses it whatever the account");
+        assertFalse(overContext.contains("--model haiku"), "Haiku has the same context limit: " + overContext);
     }
 
     @Test void aConversationThatFitsAnUnloadedAccountIsAllowedThereAndAsksToWaitWhereverItDoesNot(@TempDir Path dir) throws Exception {
