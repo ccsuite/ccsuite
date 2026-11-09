@@ -45,6 +45,51 @@ final class FreeLane implements Lane {
     /** The header a request carries to the proxy to say where a new conversation should go (the account with the most predicted room), and the one the proxy answers with to say where it went. */
     static final String PLACE_HEADER = "x-ccacc-place", ACCOUNT_HEADER = "x-ccacc-account", PROMPT_HEADER = "x-ccacc-prompt-chars";
 
+    /** PRP 86: the request header that carries the warn or close line to the proxy, which appends it to the prompt it builds (never to the recorded history or the session key, so chat reuse survives). */
+    static final String NOTE_HEADER = "x-ccacc-note";
+
+    /** The warn and close decisions (PRP 86); null: no note is ever added (tests, and a lane started without a decision log). */
+    volatile CloseNotes notes;
+
+    /** PRP 86 R4/R7: the folder of the per-session status files the status line reads; null: none is written (tests, and a lane started without one). */
+    volatile Path statusDir;
+
+    /** The line to add to this call, or null: from the request's whole size (what Claude Code sent), the Claude Code session id and the room of the account serving it. One ASCII line; fails open. */
+    String noteFor(byte[] body, Call call) {
+        var n = notes;
+        var dir = statusDir;
+        if (n == null && dir == null) return null;
+        try {
+            var session = ccsuite.webproxy.ChatSessions.sessionIdOf(JSON.readTree(body).path("metadata").path("user_id").asText(""));
+            if (session.isEmpty()) return null;
+            var room = call.account == null ? 100 : estimator.room(call.account, Instant.now()).predicted();
+            var tokens = ccsuite.webproxy.RequestTokens.ofBody(body);
+            if (dir != null) SessionStatus.write(dir, session, call.account, tokens, Zones.free(settings, room), Instant.now());   // PRP 86 R4/R7: what the status line shows; fails open
+            if (n == null) return null;
+            var row = call.account == null ? null : gauges.table().get(call.account);   // PRP 86 3b: the gauge of the serving account as the table has it now, written with the decision
+            var line = n.note(session, call.account, tokens, room, row == null ? null : row.five(), row == null ? null : row.seven());
+            return line == null ? null : line.replaceAll("[^\\x20-\\x7E]", " ");
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** PRP 87: where every request is kept (incremental jsonl); null: off. */
+    volatile BodyLog bodyLog;
+
+    /** Appends this call to the request log, after the response has been sent; fails open. */
+    void logBody(byte[] body, Call call, String note) {
+        var l = bodyLog;
+        if (l == null || call == null) return;
+        try {
+            var room = call.account == null ? 100 : estimator.room(call.account, Instant.now()).predicted();
+            var tokens = ccsuite.webproxy.RequestTokens.ofBody(body);
+            l.record(body, call.start, call.account, tokens, Zones.free(settings, room).judge(tokens), note);
+        } catch (Exception e) {
+            System.err.println("ccacc: body log: " + e);   // fail open: the call is never affected
+        }
+    }
+
     FreeLane(FreeGauges gauges, Supplier<List<CCAPICredential>> accounts, LaneSettings settings) { this(gauges, accounts, settings, null); }
 
     /** The estimator is rebuilt from the ledger (the last eight days: the week window is the longest that matters) and then listens to every reading of the gauge table. */
@@ -59,7 +104,7 @@ final class FreeLane implements Lane {
     /** Brings in the gauge table's readings the estimator has not seen (a reading put into the table without passing the listener). */
     void sync() { gauges.snapshot().forEach(r -> estimator.observe(r, "table").ifPresent(this::keep)); }
 
-    /** The free accounts the lane may use: the ones named in the settings, else every active free account that is not monitor-only. */
+    /** The free accounts the lane may use: the ones named in the settings, else every free account that is not monitor-only (the store flag active plays no part). */
     List<String> chosen() {
         var free = FreeGauges.free(accounts.get());
         var named = settings.freeAccounts();
@@ -70,7 +115,7 @@ final class FreeLane implements Lane {
     synchronized void start() {
         if (proxy != null) return;
         ids = chosen();
-        if (ids.isEmpty()) { problem = "no free account to serve from (tier 0, with a web session key, active and not monitor-only)"; return; }
+        if (ids.isEmpty()) { problem = "no free account to serve from (tier 0, with a web session key and not monitor-only)"; return; }
         try {
             System.setProperty("ccapi.chatReuse", settings.chatReuseMode());
             if (System.getProperty("ccapi.perAccountConcurrency") == null) System.setProperty("ccapi.perAccountConcurrency", String.valueOf(settings.perAccountSlots()));
@@ -136,8 +181,10 @@ final class FreeLane implements Lane {
             var uri = ex.getRequestURI();
             var target = URI.create("http://127.0.0.1:" + port + uri.getRawPath() + (uri.getRawQuery() == null ? "" : "?" + uri.getRawQuery()));
             var req = HttpRequest.newBuilder(target).method(ex.getRequestMethod(), HttpRequest.BodyPublishers.ofByteArray(body));
-            ex.getRequestHeaders().forEach((k, vs) -> { if (!SKIP.contains(k.toLowerCase()) && !k.equalsIgnoreCase(PLACE_HEADER)) vs.forEach(v -> req.header(k, v)); });
+            ex.getRequestHeaders().forEach((k, vs) -> { if (!SKIP.contains(k.toLowerCase()) && !k.equalsIgnoreCase(PLACE_HEADER) && !k.equalsIgnoreCase(NOTE_HEADER)) vs.forEach(v -> req.header(k, v)); });
             if (call != null && call.place != null) req.header(PLACE_HEADER, call.place);
+            var note = call == null ? null : noteFor(body, call);
+            if (note != null) req.header(NOTE_HEADER, note);
             HttpResponse<InputStream> res;
             try {
                 res = http.send(req.build(), HttpResponse.BodyHandlers.ofInputStream());
@@ -154,8 +201,9 @@ final class FreeLane implements Lane {
             ex.sendResponseHeaders(status, 0);
             try (var in = res.body(); var out = ex.getResponseBody()) {
                 var buf = new byte[8192];
-                for (var n = in.read(buf); n >= 0; n = in.read(buf)) { out.write(buf, 0, n); out.flush(); }
+                for (var n = in.read(buf); n >= 0; n = in.read(buf)) { out.write(buf, 0, n); out.flush(); if (call != null) call.meter.feed(buf, 0, n); }
             }
+            logBody(body, call, note);
             if (status < 400) remember(body, call == null ? null : call.account);
             return Result.done(status);
         } finally {
@@ -174,6 +222,11 @@ final class FreeLane implements Lane {
         final String model, session, cache;
         final long chars;
         final double predicted;
+        /** PRP 88: the full session key, what the terms model was told, the cost the model not in use predicted, and the size of the answer as it streams. */
+        String key;
+        FreeCostModel.Input input;
+        Double shadow;
+        final ReplyMeter meter = new ReplyMeter();
         String place;
         volatile String account;
         volatile int status;
@@ -219,7 +272,13 @@ final class FreeLane implements Lane {
         var last = key == null ? null : started.get(key);
         var chars = last == null ? body.length : Math.max(0, body.length - last);   // a chat the lane holds is sent only what is new
         var cache = last == null ? "new" : "continued";
-        var call = new Call(model, key == null ? "-" : key.substring(0, 8), cache, chars, estimator.predict(chars, cache, model));
+        var session = key == null ? "-" : key.substring(0, 8);
+        var input = chats.input(key, last == null ? null : sessionAccount.get(key), session, model, cache, chars, estimator.promptPerBody(), Instant.now());
+        var both = estimator.predictBoth(chars, cache, model, input);
+        var call = new Call(model, session, cache, chars, both[0]);
+        call.key = key;
+        call.input = input;
+        call.shadow = input == null ? null : both[1];
         if (last == null) {
             var placed = estimator.place(chosen(), estimator.predictStart(chars, model), Instant.now());
             if (placed != null) { call.place = placed.account(); call.expect(placed.account()); }
@@ -240,8 +299,13 @@ final class FreeLane implements Lane {
             var row = c.account == null ? null : gauges.rows.get(c.account);
             if (c.status < 400 && row != null && row.ok() && row.read().isAfter(c.start)) { after5 = row.five(); after7 = row.seven(); reset5After = row.resetsAt(); }   // the reply carried a gauge (or a probe read one meanwhile)
             var observed = FreeEstimator.observed(c.before5, after5, c.reset5Before, reset5After);
-            var entry = new FreeLedger.Call(Instant.now(), c.account, c.model, c.chars, FreeEstimator.tokens(c.chars), c.cache, c.status, (System.nanoTime() - c.nanos) / 1_000_000,
-                    c.before5, c.before7, c.reset5Before, after5, after7, reset5After, c.predicted, observed, c.token == null || c.token.alone(), c.session, c.promptChars);
+            var now = Instant.now();
+            var reply = c.meter.chars();
+            var held = c.input == null ? null : (long) c.input.heldChars();
+            var entry = new FreeLedger.Call(now, c.account, c.model, c.chars, FreeEstimator.tokens(c.chars), c.cache, c.status, (System.nanoTime() - c.nanos) / 1_000_000,
+                    c.before5, c.before7, c.reset5Before, after5, after7, reset5After, c.predicted, observed, c.token == null || c.token.alone(), c.session, c.promptChars,
+                    c.status < 400 ? reply : null, "new".equals(c.cache) ? Long.valueOf(0) : held, c.input == null ? null : c.input.gapS(), c.shadow);
+            if (c.status < 400) chats.served(c.key, c.cache, c.promptChars != null ? c.promptChars : c.input != null ? c.input.promptChars() : c.chars, reply, now);
             estimator.finish(c.token, entry);
             if (ledger != null) ledger.append(entry);
         } catch (RuntimeException e) {
@@ -285,7 +349,7 @@ final class FreeLane implements Lane {
         try {
             var j = JSON.readTree(body);
             if (!j.has("messages")) return null;
-            var raw = j.path("model").asText() + "|" + j.path("system") + "|" + j.path("messages").path(0);
+            var raw = ccsuite.webproxy.ChatSessions.sessionIdOf(j.path("metadata").path("user_id").asText("")) + "|" + j.path("model").asText() + "|" + j.path("system") + "|" + j.path("messages").path(0);   // Claude Code's session id too (PRP 85): two sessions that open with the same words stay two
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(raw.getBytes(StandardCharsets.UTF_8)));
         } catch (Exception e) {
             return null;
@@ -301,6 +365,9 @@ final class FreeLane implements Lane {
         if (account != null) sessionAccount.put(k, account);
     }
 
+    /** PRP 88: each chat's held size, last call and last reply, for the terms cost model. */
+    final LaneChats chats = new LaneChats();
+
     /** The account that served each session's last call: where its chat is. */
     final Map<String, String> sessionAccount = Collections.synchronizedMap(new LinkedHashMap<>() {
         @Override protected boolean removeEldestEntry(Map.Entry<String, String> e) { return size() > 500; }
@@ -313,9 +380,9 @@ final class FreeLane implements Lane {
     }
 
     /**
-     * A refusal (the API's error JSON) when this request would START a conversation no free account can carry: the estimator's allocation ({@link FreeEstimator#place}) found
-     * none whose predicted room, with the ledger's spending and the calls in flight counted, survives the first call with the margin (at the cost of about 2.2 points of a
-     * five-hour window per 10,000 characters until the ledger has taught a better rate; one such call, 475,719 characters, took an account from 61% to 142% on 2026-11-06).
+     * A refusal (the API's error JSON) when this request would START a conversation the free lane should not carry (PRP 84): its estimated input tokens (characters over the proxy's one ratio)
+     * above the safe start (340,000 by default), or above the server's context limit; or, within the safe start, when the allocation ({@link FreeEstimator#place}) finds no account whose predicted room
+     * survives the first call with the margin. No summary reserve is counted on the points: the safe start already leaves the room to summarise.
      * A conversation this lane already carries is never refused (its chat is cached, a call sends only what is new), and a small request never is. null: send it.
      */
     String guard(byte[] body) {
@@ -327,13 +394,12 @@ final class FreeLane implements Lane {
         if (ids.isEmpty()) return null;
         var now = Instant.now();
         var model = modelOf(body);
-        var need = estimator.predictStart(body.length, model);   // with the room to summarise it afterwards
-        if (estimator.place(ids, need, now) != null) return null;
-        var room = estimator.bestRoom(ids, now);
-        var tokens = estimator.claudeCodeTokens(body.length);
-        var text = tokens > settings.contextLimitTokens() || need > 100 - settings.guardMarginPoints()
-                ? beyondAnyAccount(body.length, tokens, need, model)
-                : waitForRoom(body.length, tokens, need, room, ids, now);
+        var tokens = ccsuite.webproxy.RequestTokens.ofBody(body);   // PRP 85: from the content (system, tools, messages), the one ratio only as the fallback
+        var need = estimator.predictStart(body.length, model);
+        var text = tokens > estimator.actualMaxInputTokens() || tokens > settings.contextLimitTokens()   // the decision is the estimated input against the safe start (PRP 84)
+                ? beyondAnyAccount(body.length, tokens, model)
+                : estimator.place(ids, need, now) != null ? null : waitForRoom(tokens, need, estimator.bestRoom(ids, now), ids, now);
+        if (text == null) return null;
         return JSON.createObjectNode().put("type", "error").set("error", JSON.createObjectNode().put("type", "invalid_request_error").put("message", text)).toString();
     }
 
@@ -341,32 +407,37 @@ final class FreeLane implements Lane {
         try { return JSON.readTree(body).path("model").asText(); } catch (Exception e) { return FreeEstimator.SONNET; }
     }
 
-    /** No free account could take this first call even when completely unloaded: say the limit, and that a compaction (or Haiku, when it would fit) is the way. */
-    private String beyondAnyAccount(long chars, long tokens, double need, String model) {
-        var limit = estimator.ceilingChars();
+    /** The estimated input is above the safe start (or the server's context limit): waiting for a reset cannot help. Say the estimate and the limit it was compared with, and that compacting (or Haiku, when it would fit a Haiku start) is the way. */
+    private String beyondAnyAccount(long chars, long tokens, String model) {
+        var overContext = tokens > settings.contextLimitTokens();
+        var limit = overContext ? Math.round(settings.contextLimitTokens()) : estimator.actualMaxInputTokens();
         var haikuNeed = estimator.predictStart(chars, "claude-haiku-5-5");
-        var haiku = FreeEstimator.family(model).equals("sonnet") && tokens <= settings.contextLimitTokens() && haikuNeed <= 100 - settings.guardMarginPoints() ? " It would fit on Haiku: start fclaude with --model haiku." : "";
-        return String.format("fclaude: this conversation is too long to start on the free lane, on any free account: about %,d characters (~%,d tokens), roughly %d points of the 100 a completely unloaded account has, counting the room to summarise it afterwards. "
-                + "The most the free lane can safely start is about %,d characters (~%,d tokens) on Sonnet 5.5, and the server itself refuses a request over %,d tokens. Compact it first in claude or pclaude (/compact) and continue here, or start a new session in fclaude.%s",
-                chars, tokens, Math.round(need), Math.round(limit), estimator.claudeCodeTokens(limit), Math.round(settings.contextLimitTokens()), haiku);
+        var haiku = FreeEstimator.family(model).equals("sonnet") && !overContext && haikuNeed <= 100 - settings.guardMarginPoints() ? " It would fit a Haiku start: start fclaude with --model haiku." : "";
+        return String.format("fclaude: this conversation is too long to start on the free lane: its estimated input is ~%,d tokens (%,d characters), above the %s of %,d tokens. "
+                + "A conversation may start up to %,d tokens and is worked on up to %,d. Compact it first in claude or pclaude (/compact) and continue here, or start a new session in fclaude; waiting for a reset does not help.%s",
+                tokens, chars, overContext ? "limit the server itself enforces" : "safe start", limit, estimator.actualMaxInputTokens(), estimator.workZoneTokens(), haiku);
     }
 
-    /** It fits an unloaded account but none has the room now: say which one gets it back first, and when. */
-    private String waitForRoom(long chars, long tokens, double need, double room, List<String> ids, Instant now) {
+    /** The estimate is within the safe start but no free account has the room now: say which one gets it back first, and when. */
+    private String waitForRoom(long tokens, double need, double room, List<String> ids, Instant now) {
         var back = estimator.nextReset(ids, now).map(r -> "room comes back with the next window reset, in about " + FreeGauges.untilReset(r.at().getEpochSecond(), now) + ", on " + r.account()).orElse("no window reset time is known yet");
-        return String.format("fclaude: this conversation is too long to start on the free lane now: about %,d characters (~%,d tokens), roughly %d points of a five-hour window, and the ledger predicts the free account with the most room has about %d points left (%s). "
-                + "Wait for that, or start a new session in fclaude. Compact it first in claude or pclaude (/compact) to continue this one here.", chars, tokens, Math.round(need), Math.round(room), back);
+        return String.format("fclaude: this conversation cannot start on the free lane now: its estimated input is ~%,d tokens, within the safe start of %,d tokens, but it needs roughly %d points of a five-hour window and the ledger predicts the free account with the most room has about %d points left (%s). "
+                + "Wait for that, or start a new session in fclaude. Compact it first in claude or pclaude (/compact) to continue this one here.", tokens, estimator.actualMaxInputTokens(), Math.round(need), Math.round(room), back);
     }
 
     /** The free lane's account lines for the status command: room now and predicted (the ledger's estimate), the last gauge read, the week, the reset, the error of the last predictions. */
     List<String> roomLines() {
         sync();
         var now = Instant.now();
-        var byId = new HashMap<String, FreeGauges.Row>();
-        gauges.snapshot().forEach(r -> byId.put(r.id(), r));
-        return estimator.rooms(chosen(), now).stream().map(r -> {
-            var row = byId.get(r.id());
-            return "  " + estimator.line(r, now) + (row == null ? "" : "; gauge read " + FreeGauges.percent(row.five()).strip() + ", " + FreeGauges.ago(row.read(), now));
+        var chosen = chosen();
+        var rooms = new HashMap<String, FreeEstimator.Room>();
+        estimator.rooms(chosen, now).forEach(r -> rooms.put(r.id(), r));
+        var pending = chosen.stream().filter(id -> !ids.contains(id)).toList();
+        return FreeStates.entries(accounts.get(), gauges.table(), pending, now, ZoneId.systemDefault()).stream().map(e -> {
+            var room = rooms.get(e.id());
+            var by = e.row() == null || e.row().five() == null ? "" : " by " + gauges.sources.getOrDefault(e.id(), "?");
+            var estimate = room == null || e.kind() != FreeStates.Kind.AVAILABLE || !room.known() ? "" : "\n        " + estimator.line(room, now).substring(e.id().length()).strip();
+            return "  " + FreeStates.line(e, now) + by + estimate;
         }).toList();
     }
 

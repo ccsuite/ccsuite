@@ -27,10 +27,29 @@ class FreeUsageUiTest {
         assertTrue(ui(List.of(account("P", 1, "k"), account("F", 0, "k"))).hasFree());
     }
 
-    @Test void theFreeTrackerHasItsOwnColour() {
-        assertNotEquals(CcaccApp.COLOR, FreeSummary.COLOR);
-        assertEquals("#2aa7b8", FreeSummary.colour(0.1));
-        assertEquals("#e0a100", FreeSummary.colour(0.75), "the usage colours keep their meaning");
-        assertEquals("#b3261e", FreeSummary.colour(0.95));
+    @Test void theFreeWindowHasItsOwnColours() {
+        assertNotEquals(ccsuite.usagetracker.ui.Palette.PAID.bgActive(), ccsuite.usagetracker.ui.Palette.FREE.bgActive(), "teal ground, so it is never mistaken for the paid window");
+        assertNotNull(ccsuite.usagetracker.ui.Palette.FREE.timeBar());
+        assertNull(ccsuite.usagetracker.ui.Palette.PAID.timeBar(), "the paid window keeps the colours of its own rows");
     }
+
+    @Test void theFreeWindowIsTheSharedWindowFedWithTheFreePagesAndNeverShowsByItself(@org.junit.jupiter.api.io.TempDir Path dir) throws Exception {
+        MainWindowTest.toolkit();
+        var gauges = new FreeGauges(() -> List.of(account("F1", 0, "k"), account("F2", 0, "k")), (c, m) -> null, dir.resolve("log"));
+        var ui = onFx(() -> new FreeUsageUi(gauges, new LaneSettings(), MainWindowTest.pane(), false));
+        ui.windowSettings = dir.resolve("free-window.json");
+        onFx(() -> { ui.sync(); return null; });
+        assertTrue(ui.shown);
+        assertNotNull(ui.widget, "the free window exists as soon as a free account does");
+        assertFalse(onFx(() -> ui.widget.floatingOn()), "and is not shown by itself");
+        onFx(() -> { ui.toggleDialog(); return null; });
+        assertTrue(onFx(() -> ui.widget.floatingOn()), "it opens on request");
+        onFx(() -> { ui.push(); return null; });
+        onFx(() -> { ui.toggleDialog(); return null; });
+        assertFalse(onFx(() -> ui.widget.floatingOn()));
+        onFx(() -> { ui.hide(); return null; });
+        assertNull(ui.widget);
+    }
+
+    static <T> T onFx(java.util.function.Supplier<T> s) throws Exception { return MainWindowTest.onFx(s); }
 }

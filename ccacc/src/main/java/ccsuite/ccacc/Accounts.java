@@ -40,6 +40,32 @@ final class Accounts {
         change(all -> AccountEditor.add(all, props));
     }
 
+    /**
+     * A free account: tier 0 with a web session key and an organisation id ({@link FreeGauges#free}). The short name is its id and its name. A missing or malformed
+     * field is refused with a message that never contains the key, and nothing is written, so no other account changes.
+     */
+    void addFree(String shortName, String email, String orgId, String key) throws IOException {
+        var id = shortName == null ? "" : shortName.trim();
+        if (id.isEmpty()) throw new IllegalArgumentException("the short name is missing");
+        if (id.matches(".*\\s.*")) throw new IllegalArgumentException("the short name has no spaces (it is the account's id)");
+        if (email == null || !email.trim().matches("[^@\\s]+@[^@\\s]+\\.[^@\\s]+")) throw new IllegalArgumentException("the e-mail does not look like an e-mail address");
+        if (orgId == null || orgId.isBlank()) throw new IllegalArgumentException("the organisation id is missing");
+        if (orgId.trim().matches(".*\\s.*")) throw new IllegalArgumentException("the organisation id has no spaces");
+        if (key == null || key.isBlank()) throw new IllegalArgumentException("the session key is missing");
+        if (key.trim().matches(".*\\s.*")) throw new IllegalArgumentException("the session key has no spaces or line breaks (paste only the key)");
+        var p = new java.util.LinkedHashMap<String, String>();
+        p.put("id", id);
+        p.put("name", id);
+        p.put("email", email.trim());
+        p.put("orgId", orgId.trim());
+        p.put("key", key.trim());
+        p.put("tier", "0");
+        p.put("active", "on");
+        p.put("trackUsage", "on");
+        p.put("trackChats", "on");
+        add(p);
+    }
+
     /** Takes the account out of the file; the login saved for switching to it stays on disk. */
     void remove(String id) throws IOException {
         change(all -> AccountEditor.remove(all, id));

@@ -174,6 +174,14 @@ public final class UsageService {
         return u;
     }
 
+    /**
+     * A reading made before this run (read back from the watcher's log) becomes the last known one, and the time it was made the cooldown clock, so a restart does not
+     * probe every account again at once: each is probed when its cooldown since that reading has passed. Never replaces what this run has read.
+     */
+    public void seed(String id, AccountUsage reading, long readAtMs) {
+        if (lastKnownUsage.putIfAbsent(id, reading) == null) lastFallbackAt.putIfAbsent(id, readAtMs);
+    }
+
     /** The latest reading any caller got for {@code id} (the watcher's or a fallback's), or {@code null} if none yet. No network. */
     public AccountUsage lastKnown(String id) { return lastKnownUsage.get(id); }
 

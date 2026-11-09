@@ -63,6 +63,18 @@ public class CCAPIsCredentials {
                 .toList();
     }
 
+    /** A free account is tier 0; every other tier is paid. The two groups are shown apart and an account never moves from one to the other because of a flag such as trackUsage. */
+    public static boolean paid(CCAPICredential c) { return c.tier() != 0; }
+
+    /** The paid accounts with usage tracking on, Claude Code's account first (the usage views of the paid accounts: the window and the card). */
+    public List<CCAPICredential> getPaidUsageCredentialsOrdered() {
+        return getTrackUsageCredentialsOrdered().stream().filter(CCAPIsCredentials::paid).toList();
+    }
+
+    public List<CCAPICredential> getPaidUsageCredentials() {
+        return getTrackUsageCredentials().stream().filter(CCAPIsCredentials::paid).toList();
+    }
+
     /**
      * Get all credentials with chat tracking enabled
      */

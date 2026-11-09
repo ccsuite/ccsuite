@@ -42,9 +42,8 @@ class TrayItemsTest {
         var i = items(dir, new WatchBridge(), false);
         var t = texts(i.build());
         assertEquals("account watcher is off", i.status());
-        assertTrue(texts(i.partItems()).contains("✗ Account watcher"), "the switches are behind the window now");
         assertTrue(t.stream().noneMatch(s -> s.startsWith("Switch to")));
-        assertTrue(t.contains("Accounts, parts and servers…"));
+        assertTrue(t.contains("Servers and accounts…"));
         assertTrue(t.contains("Quit ccacc"));
     }
 
@@ -65,9 +64,6 @@ class TrayItemsTest {
         assertTrue(t.contains("○ Locked: stay on this account, still warn"));
         assertTrue(t.contains("○ Paused: do not poll at all"));
         assertTrue(t.stream().filter(s -> !s.equals("---")).count() <= 12, "the menu stays short: " + t);
-        var behind = texts(i.switchItems());
-        assertTrue(behind.contains("Switch to dan   80% weekly free, avg 40%"));
-        assertTrue(behind.stream().noneMatch(s -> s.startsWith("Switch to ann")));
         assertTrue(texts(i.modeItems()).contains("● Auto: switch and rebalance on its own"));
         assertTrue(texts(i.modeItems()).contains("○ Locked: stay on this account, still warn"));
     }

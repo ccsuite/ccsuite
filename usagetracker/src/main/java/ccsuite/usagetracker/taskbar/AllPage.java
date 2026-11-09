@@ -10,11 +10,11 @@ import java.time.OffsetDateTime;
 import java.util.List;
 
 /** All the accounts as one more page of the card: the averages drawn like an account, named ALL, its "tier" the number of accounts. */
-final class AllPage {
+public final class AllPage {
 
     static final long FIVE_HOURS = 5 * 3600L, WEEK = 7 * 24 * 3600L;
 
-    static Consolidated total(List<AccountUsage> list) {
+    public static Consolidated total(List<AccountUsage> list) {
         return Consolidated.of(list.stream().map(AllPage::row).toList());
     }
 
@@ -31,7 +31,7 @@ final class AllPage {
     }
 
     /** The page, or null with fewer than two accounts or no data to average. */
-    static AccountUsage page(Consolidated c, int accounts) {
+    public static AccountUsage page(Consolidated c, int accounts) {
         if (accounts < 2 || !(c.hasFiveHour() || c.hasWeek())) return null;
         var data = new UsageData();
         if (c.hasFiveHour()) data.fiveHour(window(c.fiveHourUsage(), c.fiveHourTime(), FIVE_HOURS));

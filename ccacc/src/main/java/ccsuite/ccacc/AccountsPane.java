@@ -2,50 +2,47 @@ package ccsuite.ccacc;
 
 import ccsuite.base.model.CCAPICredential;
 import javafx.geometry.Insets;
-import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.input.KeyCode;
+import javafx.scene.input.KeyCode;
 import javafx.scene.layout.*;
-import javafx.stage.Stage;
 
 import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.Optional;
 
 /**
- * The account manager: the accounts on the left, what is set for the chosen one on the right (name, e-mail, the most
- * of it Claude Code may use before the watcher moves on, the tier, whether it takes part, is tracked, or is monitor
- * only), add and remove. Apply (F2) saves the form; nothing is saved before. Esc closes.
+ * The Manage tab, the account editor: the accounts on the left (paid and free, each marked), what is set for the chosen one on the right (name, e-mail, the most
+ * of it Claude Code may use before the watcher moves on, the tier, whether it takes part, is tracked, or is monitor only), add (paid or free) and remove.
+ * Apply (F2) saves the form; nothing is saved before. Free accounts are tier 0 and are shown in the free views only.
  */
-final class AccountsWindow {
+final class AccountsPane extends VBox implements Page {
 
     final Parts parts;
     final Accounts accounts;
-    final Stage stage = new Stage();
     final ListView<String> list = new ListView<>();
-    final TextField name = new TextField(), email = new TextField(), limit = new TextField(), tier = new TextField();
+    final TextField name = new TextField(), email = new TextField(), limit = new TextField(), tier = new TextField(), orgId = new TextField();
+    final TextField key = new TextField();   // visible on purpose: the user wants to see the key it holds
     final CheckBox include = new CheckBox("Takes part (active)"), track = new CheckBox("Track its usage"),
             monitorOnly = new CheckBox("Monitor only: watched and counted in the totals, never switched to, never served from"),
             primary = new CheckBox("Primary: mine alone. No 5-hour guard, and in the last day of its week it is used up to 100%");
     final Label note = new Label();
-    boolean filling;
+    boolean filling, active;
 
-    AccountsWindow(Parts parts, Accounts accounts, String color) {
+    /** {@code accounts} is null when the accounts are not loaded (a test, or a machine with none yet): the tab then only says so. */
+    AccountsPane(Parts parts, Accounts accounts) {
+        super(10);
         this.parts = parts;
         this.accounts = accounts;
-        var title = new Label("Accounts");
-        title.setStyle("-fx-font-size: 18; -fx-font-weight: bold; -fx-text-fill: white;");
-        var band = new VBox(title);
-        band.setPadding(new Insets(8, 14, 8, 14));
-        band.setStyle("-fx-background-color: " + color + ";");
-
-        list.setPrefWidth(190);
+        setPadding(new Insets(12, 14, 10, 14));
+        list.setPrefWidth(230);
+        list.setStyle("-fx-font-family: 'Consolas'; -fx-font-size: 13;");
         list.getSelectionModel().selectedIndexProperty().addListener((o, was, now) -> fill());
         var grid = new GridPane();
         grid.setHgap(8);
         grid.setVgap(7);
         var row = 0;
-        for (var f : new Object[][]{{"Name", name}, {"E-mail", email}, {"Limit (% of the quota Claude Code may use)", limit}, {"Tier (0 = free)", tier}})
+        for (var f : new Object[][]{{"Name", name}, {"E-mail", email}, {"Limit (% of the quota Claude Code may use)", limit}, {"Tier (0 = free)", tier}, {"Organisation id", orgId}, {"Session key", key}})
             grid.addRow(row++, new Label((String) f[0]), (TextField) f[1]);
         limit.setPromptText("95");
         monitorOnly.setWrapText(true);
@@ -56,34 +53,34 @@ final class AccountsWindow {
         register.setOnAction(e -> register());
         var add = new Button("Add account…");
         add.setOnAction(e -> add());
+        var addFree = new Button("Add free account…");
+        addFree.setOnAction(e -> addFree());
         var remove = new Button("Remove…");
         remove.setOnAction(e -> remove());
         note.setWrapText(true);
         note.setStyle("-fx-text-fill: #8a3b1c;");
-        var form = new VBox(10, grid, include, track, monitorOnly, primary, new HBox(10, apply), register, note);
+        var form = new VBox(10, grid, include, track, monitorOnly, primary, new HBox(10, apply), register);
         form.setPadding(new Insets(0, 0, 0, 14));
         HBox.setHgrow(form, Priority.ALWAYS);
-        var body = new VBox(10, new HBox(0, list, form), new HBox(10, add, remove));
-        body.setPadding(new Insets(12, 14, 12, 14));
-        var scene = new Scene(new VBox(band, body), 700, 480);
-        scene.setOnKeyPressed(e -> {
-            if (e.getCode() == KeyCode.ESCAPE) stage.hide();
-            else if (e.getCode() == KeyCode.F2) apply();
-        });
-        stage.setTitle("ccacc accounts");
-        stage.getIcons().setAll(FxImages.windowIcons());
-        stage.setScene(scene);
+        var split = new HBox(0, list, form);
+        VBox.setVgrow(split, Priority.ALWAYS);
+        getChildren().addAll(split, new HBox(10, add, addFree, remove), note);
     }
 
-    void show() {
+    @Override public void start() {
+        active = true;
+        if (accounts == null) { note.setText("The accounts are not loaded."); return; }
         redraw(null);
-        stage.show();
-        stage.toFront();
     }
+
+    @Override public void stop() { active = false; }
+
+    @Override public java.util.List<KeyAction> keys() { return java.util.List.of(new KeyAction(KeyCode.F2, "Apply", this::apply)); }
 
     /** The list from the file's accounts, keeping the chosen one when it is still there. */
     void redraw(String keep) {
-        var rows = accounts.list().stream().map(AccountsWindow::row).toList();
+        if (accounts == null) return;
+        var rows = accounts.list().stream().map(AccountsPane::row).toList();
         var at = keep == null ? list.getSelectionModel().getSelectedIndex() : idsNow().indexOf(keep);
         list.getItems().setAll(rows);
         list.getSelectionModel().select(rows.isEmpty() ? -1 : Math.max(0, Math.min(at, rows.size() - 1)));
@@ -91,14 +88,15 @@ final class AccountsWindow {
     }
 
     static String row(CCAPICredential c) {
-        return "%-10s %s%s".formatted(c.id(), c.watchOnly() ? "monitor only" : c.primary() ? "primary" : "", c.active() ? "" : "  (off)");
+        var kind = c.tier() == 0 ? "free" : c.watchOnly() ? "monitor only" : c.primary() ? "primary" : "";
+        return "%-10s %s%s".formatted(c.id(), kind, c.active() || c.tier() == 0 ? "" : "  (off)");   // the flag plays no part for a free account
     }
 
-    java.util.List<String> idsNow() { return accounts.list().stream().map(CCAPICredential::id).toList(); }
+    java.util.List<String> idsNow() { return accounts == null ? java.util.List.of() : accounts.list().stream().map(CCAPICredential::id).toList(); }
 
     CCAPICredential chosen() {
         var i = list.getSelectionModel().getSelectedIndex();
-        var all = accounts.list();
+        var all = accounts == null ? java.util.List.<CCAPICredential>of() : accounts.list();
         return i < 0 || i >= all.size() ? null : all.get(i);
     }
 
@@ -107,7 +105,7 @@ final class AccountsWindow {
         var c = chosen();
         filling = true;
         try {
-            for (var n : new javafx.scene.Node[]{name, email, limit, tier, include, track, monitorOnly, primary}) n.setDisable(c == null);
+            for (var n : new javafx.scene.Node[]{name, email, limit, tier, orgId, key, include, track, monitorOnly, primary}) n.setDisable(c == null);
             if (c == null) return;
             name.setText(c.name() == null ? "" : c.name());
             email.setText(c.email() == null ? "" : c.email());
@@ -117,6 +115,11 @@ final class AccountsWindow {
             track.setSelected(c.trackUsage());
             monitorOnly.setSelected(c.watchOnly());
             primary.setSelected(c.primary());
+            orgId.setText(c.orgId() == null ? "" : c.orgId());
+            key.setText(c.key() == null ? "" : c.key());
+            key.setPromptText("none saved");
+            var free = c.tier() == 0;   // a free account is read by probe and its state follows its restore time: these play no part
+            for (var n : new javafx.scene.Node[]{include, track, primary, limit}) n.setDisable(free);
         } finally {
             filling = false;
         }
@@ -134,6 +137,10 @@ final class AccountsWindow {
         p.put("trackUsage", track.isSelected() ? "on" : "off");
         p.put("watchOnly", monitorOnly.isSelected() ? "on" : "off");
         p.put("primary", primary.isSelected() ? "on" : "off");
+        var typed = key.getText().strip();
+        if (typed.matches(".*\\s.*")) { note.setText("The session key has no spaces or line breaks: paste only the key."); return; }
+        if (!orgId.getText().isBlank()) p.put("orgId", orgId.getText());
+        if (!typed.isBlank() && !typed.equals(c.key())) p.put("key", typed);
         try {
             accounts.set(c.id(), p);
             note.setText("Saved " + c.id() + ".");
@@ -174,6 +181,11 @@ final class AccountsWindow {
         } catch (IllegalArgumentException | IOException e) {
             note.setText(e.getMessage());
         }
+    }
+
+    void addFree() {
+        if (accounts == null) return;
+        FreeAccountDialog.show(accounts).ifPresent(id -> { note.setText("Added free account " + id + "."); redraw(id); });
     }
 
     void remove() {

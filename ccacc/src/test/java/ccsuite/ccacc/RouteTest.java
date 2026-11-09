@@ -32,6 +32,7 @@ class RouteTest {
     @Test void theCommandsThatChangeTheRunningAppHaveTheirOwnRoute() {
         assertEquals(CONTROL, Route.of(new String[]{"mode", "locked"}));
         assertEquals(CONTROL, Route.of(new String[]{"account", "list"}));
+        assertEquals(CONTROL, Route.of(new String[]{"window", "lanes"}), "ccacc window <tab> opens the running app's window");
         assertArrayEquals(new String[]{"part", "server", "off"}, Route.rest(new String[]{"part", "server", "off"}));
     }
 
@@ -45,6 +46,11 @@ class RouteTest {
         assertArrayEquals(new String[]{"--start-at-login"}, Route.rest(new String[]{"install", "--start-at-login"}));
         assertEquals(UNINSTALL, Route.of(new String[]{"uninstall"}));
         assertEquals(UPDATE, Route.of(new String[]{"update"}));
+    }
+
+    @Test void theStopGateHookHasItsOwnRouteAndNeverStartsTheApp() {
+        assertEquals(STOPGATE, Route.of(new String[]{"stop-gate"}));
+        assertArrayEquals(new String[]{}, Route.rest(new String[]{"stop-gate"}));
     }
 
     @Test void everythingElseIsACswapCommandAndKeepsItsWord() {

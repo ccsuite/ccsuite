@@ -31,10 +31,11 @@ final class LaneCommands {
                 case "drain" -> Reply.ok(host == null ? "idle (ccacc is not running)" : host.drain(Duration.ofMinutes(5)));
                 case "hold" -> hold(args);
                 case "limits" -> Reply.ok(String.join("\n", (host != null && host.free != null ? host.free.estimator : FreeEstimator.fromLedger(ledger, store.load().lanes(), java.time.Instant.now())).limitLines()));
+                case "zones" -> zones(args);   // read-only (PRP 86)
                 case "on", "off" -> onOff(sub.equals("on"));
                 case "set" -> set(args);
                 case "free-accounts" -> accounts(args);
-                default -> Reply.error("lanes: show | limits | open | drain | hold on|off | on | off | set <freeFiveLimit|freeWeekLimit|perAccountSlots|chatReuse|paidPin> <value> | free-accounts <id,id|all>");
+                default -> Reply.error("lanes: show | limits | zones [--room N] | open | drain | hold on|off | on | off | set <freeFiveLimit|freeWeekLimit|perAccountSlots|freePingEveryMinutes|freePingFreshMinutes|freePingSpreadSeconds|pclaudePort|fclaudePort|chatReuse|paidPin|bodyLog|bodyLogDays|costModel|termsPerCall|termsFreshPer10k|termsReadPer10k|termsColdPer10k|termsReplyPer10k|termsWarmSeconds|termsReplyChars> <value> | free-accounts <id,id|all>");
             };
         } catch (IllegalArgumentException e) {
             return Reply.error(e.getMessage());
@@ -58,6 +59,27 @@ final class LaneCommands {
         return out;
     }
 
+    /**
+     * {@code lanes zones [--room N]}: the warn, close and hard points of a cycle in input tokens, for the free lane (scaled by the room: N points of the window, or the best
+     * predicted room among the free accounts, 100 when none was ever read) and for the paid profile. Read-only: nothing is written.
+     */
+    Reply zones(List<String> args) {
+        var l = (host != null ? host.lanes() : store.load().lanes());
+        double room;
+        if (args.size() > 2) {
+            if (!args.get(2).equals("--room") || args.size() < 4) throw new IllegalArgumentException("lanes zones [--room N]");
+            room = number(args.get(3));
+        } else {
+            var now = java.time.Instant.now();
+            var estimate = host != null && host.free != null ? host.free.estimator : FreeEstimator.fromLedger(ledger, l, now);
+            var best = estimate.bestRoom(estimate.accounts(), now);
+            room = best < 0 ? 100 : best;
+        }
+        var out = new ArrayList<>(Zones.free(l, room).lines("free"));
+        out.addAll(Zones.paid(l).lines("paid"));
+        return Reply.ok(String.join("\n", out));
+    }
+
     Reply hold(List<String> args) {
         if (host == null) throw new IllegalArgumentException("hold: ccacc is not running, there is no lane to hold");
         if (args.size() < 3 || !List.of("on", "off").contains(args.get(2))) throw new IllegalArgumentException("lanes hold on|off");
@@ -72,23 +94,44 @@ final class LaneCommands {
     }
 
     Reply set(List<String> args) {
-        if (args.size() < 4) throw new IllegalArgumentException("lanes set <freeFiveLimit|freeWeekLimit|perAccountSlots|chatReuse|paidPin> <value>");
+        if (args.size() < 4) throw new IllegalArgumentException("lanes set <freeFiveLimit|freeWeekLimit|perAccountSlots|freePingEveryMinutes|freePingFreshMinutes|freePingSpreadSeconds|pclaudePort|fclaudePort|chatReuse|paidPin|bodyLog|bodyLogDays|costModel|termsPerCall|termsFreshPer10k|termsReadPer10k|termsColdPer10k|termsReplyPer10k|termsWarmSeconds|termsReplyChars> <value>");
         var key = args.get(2);
         var value = args.get(3);
         Consumer<LaneSettings> apply = switch (key) {
-            case "freeFiveLimit" -> l -> l.freeFiveLimit(number(value));
-            case "freeWeekLimit" -> l -> l.freeWeekLimit(number(value));
-            case "perAccountSlots" -> l -> l.perAccountSlots(number(value).intValue());
+            case "freeFiveLimit" -> l -> l.freeFiveLimit(fraction(key, value));
+            case "freeWeekLimit" -> l -> l.freeWeekLimit(fraction(key, value));
+            case "perAccountSlots" -> l -> l.perAccountSlots(atLeast(key, value, 1));
+            case "freePingEveryMinutes" -> l -> l.freePingEveryMinutes(atLeast(key, value, 1));   // read again after every round
+            case "freePingFreshMinutes" -> l -> l.freePingFreshMinutes(atLeast(key, value, 1));
+            case "freePingSpreadSeconds" -> l -> l.freePingSpreadSeconds(atLeast(key, value, 0));
+            case "pclaudePort" -> l -> { var p = port(key, value); if (p == l.fclaudePort()) throw new IllegalArgumentException("pclaudePort cannot be the same port as fclaudePort (" + p + ")"); l.pclaudePort(p); };
+            case "fclaudePort" -> l -> { var p = port(key, value); if (p == l.pclaudePort()) throw new IllegalArgumentException("fclaudePort cannot be the same port as pclaudePort (" + p + ")"); l.fclaudePort(p); };
             case "paidPin" -> l -> l.paidPin(value.equalsIgnoreCase("off") ? "" : value);   // an account id, or off; read on every request, so it applies at once
             case "chatReuse" -> {
                 if (!List.of("on", "off", "fresh", "true", "false").contains(value.toLowerCase())) throw new IllegalArgumentException("chatReuse takes off, on or fresh");
                 yield l -> l.chatReuse(value.toLowerCase()).chatReuseExplicit(true);
             }
+            case "bodyLog" -> {
+                if (!List.of("on", "off", "true", "false").contains(value.toLowerCase())) throw new IllegalArgumentException("bodyLog takes on or off");
+                yield l -> l.bodyLog(value.equalsIgnoreCase("on") || value.equalsIgnoreCase("true"));   // PRP 87: the request log; applies when the lanes next start
+            }
+            case "bodyLogDays" -> l -> l.bodyLogDays(atLeast(key, value, 1));
+            case "costModel" -> {
+                if (!List.of("rate", "terms").contains(value.toLowerCase())) throw new IllegalArgumentException("costModel takes rate or terms");
+                yield l -> l.costModel(value.toLowerCase());   // PRP 88: read on every prediction, so it applies at once
+            }
+            case "termsPerCall" -> l -> l.termsPerCall(atLeast(key, value, 0.0));
+            case "termsFreshPer10k" -> l -> l.termsFreshPer10k(atLeast(key, value, 0.0));
+            case "termsReadPer10k" -> l -> l.termsReadPer10k(atLeast(key, value, 0.0));
+            case "termsColdPer10k" -> l -> l.termsColdPer10k(atLeast(key, value, 0.0));
+            case "termsReplyPer10k" -> l -> l.termsReplyPer10k(atLeast(key, value, 0.0));
+            case "termsWarmSeconds" -> l -> l.termsWarmSeconds(atLeast(key, value, 0.0));
+            case "termsReplyChars" -> l -> l.termsReplyChars(atLeast(key, value, 0.0));
             default -> throw new IllegalArgumentException("unknown setting '" + key + "'");
         };
         change(apply);
         if (host != null && key.equals("chatReuse")) System.setProperty("ccapi.chatReuse", host.lanes().chatReuseMode());   // the proxy reads it on every call, so it applies at once
-        return Reply.ok(key + " = " + value + (key.equals("perAccountSlots") ? " (applies when the lanes next start)" : ""));
+        return Reply.ok(key + " = " + value + (List.of("perAccountSlots", "pclaudePort", "fclaudePort", "bodyLog", "bodyLogDays").contains(key) ? " (applies when the lanes next start)" : ""));
     }
 
     Reply accounts(List<String> args) {
@@ -96,6 +139,31 @@ final class LaneCommands {
         var ids = args.get(2).equals("all") ? List.<String>of() : Arrays.stream(args.get(2).split(",")).map(String::trim).filter(s -> !s.isEmpty()).toList();
         change(l -> l.freeAccounts(new ArrayList<>(ids)));
         return Reply.ok("free lane accounts: " + (ids.isEmpty() ? "every free account that is not monitor-only" : ids) + " (applies when the lanes next start)");
+    }
+
+    /** A limit is a fraction of the window, above 0 and at most 1 (0.97 is 97%). */
+    static double fraction(String key, String v) {
+        var n = number(v);
+        if (n <= 0 || n > 1) throw new IllegalArgumentException(key + " is a fraction above 0 and at most 1 (0.97 is 97%), not " + v);
+        return n;
+    }
+
+    static double atLeast(String key, String v, double min) {
+        var n = number(v);
+        if (n < min) throw new IllegalArgumentException(key + " is a number of " + min + " or more, not " + v);
+        return n;
+    }
+
+    static int atLeast(String key, String v, int min) {
+        var n = number(v);
+        if (n != Math.rint(n) || n < min) throw new IllegalArgumentException(key + " is a whole number of " + min + " or more, not " + v);
+        return n.intValue();
+    }
+
+    static int port(String key, String v) {
+        var n = number(v);
+        if (n != Math.rint(n) || n < 1024 || n > 65535) throw new IllegalArgumentException(key + " is a port between 1024 and 65535, not " + v);
+        return n.intValue();
     }
 
     static Double number(String s) {

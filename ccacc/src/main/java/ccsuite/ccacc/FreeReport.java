@@ -5,14 +5,17 @@ import module java.base;
 /** The free accounts' usage as text and as JSON for the command line: the overall first, then one line per account. */
 final class FreeReport {
 
-    static List<String> text(List<FreeGauges.Row> rows, boolean overallOnly, LaneSettings limits, Instant now) {
+    static List<String> text(List<FreeGauges.Row> rows, boolean overallOnly, LaneSettings limits, Instant now) { return text(rows, overallOnly, limits, now, null); }
+
+    /** {@code states}: every free account in the one shared order ({@link FreeStates}), or null for the rows alone. */
+    static List<String> text(List<FreeGauges.Row> rows, boolean overallOnly, LaneSettings limits, Instant now, List<FreeStates.Entry> states) {
         var out = new ArrayList<String>();
-        if (rows.isEmpty()) { out.add("No free account has been read yet."); return out; }
+        if (rows.isEmpty()) { out.add("No free account has been read yet."); if (states != null && !overallOnly) states.forEach(e -> out.add("  " + FreeStates.line(e, now))); return out; }
         var o = FreeOverall.of(rows, limits.freeFiveLimit(), limits.freeWeekLimit(), now);
         out.add(String.format("ALL   5h %s %s   week %s %s   %d of %d with room, about %.1f five-hour windows left", FreeGauges.bar(o.fiveFraction()), FreeGauges.percent(o.fiveFraction()),
                 FreeGauges.bar(o.weekFraction()), FreeGauges.percent(o.weekFraction()), o.withRoom(), o.accounts(), o.windowsLeft()));
         if (o.fiveTime() > 0) out.add(String.format("      five-hour windows are %d%% gone on average, so the pool spends them at %d%% of the pace that would just use them up", Math.round(o.fiveTime()), Math.round(o.fiveRate())));
-        if (!overallOnly) rows.forEach(r -> out.add("  " + FreeGauges.line(r, now)));
+        if (!overallOnly) { if (states == null) rows.forEach(r -> out.add("  " + FreeGauges.line(r, now))); else states.forEach(e -> out.add("  " + FreeStates.line(e, now))); }
         return out;
     }
 

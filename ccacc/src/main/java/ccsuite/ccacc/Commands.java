@@ -44,6 +44,7 @@ final class Commands {
                 case "part" -> part(args);
                 case "account" -> account(args);
                 case "gate" -> gate(args);
+                case "window" -> throw new IllegalStateException("ccacc is not running: there is no window to open");
                 default -> Reply.error("unknown command " + args.get(0));
             };
         } catch (IllegalArgumentException | IllegalStateException e) {

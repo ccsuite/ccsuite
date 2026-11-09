@@ -16,6 +16,7 @@ import java.util.stream.Stream;
  * ccacc list | status | usage | switch | register | watch    cswap's commands
  * ccacc tui                 ccu's usage view in the terminal
  * ccacc serve               the local proxy alone, no tray
+ * ccacc tokencheck          the free estimate against the paid token count (PRP 85)
  * </pre>
  * This class is not a JavaFX Application, so the shaded jar finds its JavaFX modules when the app starts.
  */
@@ -39,7 +40,22 @@ public final class CcaccMain {
             case GATE -> System.exit(GateRoute.run(args));
             case FREE -> System.exit(FreeCli.run(rest));
             case CALLS -> System.exit(CallsCli.run(rest));
+            case TOKENCHECK -> System.exit(TokenCheck.run(rest));
+            case STOPGATE -> System.exit(stopGate());
         }
+    }
+
+    /** PRP 86: the Stop hook of the free lane. Reads Claude Code's JSON on stdin, prints the block JSON or nothing, and always exits 0 (fail open). Never starts the app. */
+    static int stopGate() {
+        try {
+            var in = new String(System.in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            var log = java.nio.file.Path.of(System.getProperty("user.home"), "ccsuite", "ccacc", "close-decisions.log");
+            var out = StopGate.hook(in, log, 3);
+            if (!out.isEmpty()) System.out.println(out);
+        } catch (Throwable e) {
+            // fail open: no output, exit 0
+        }
+        return 0;
     }
 
     /** A cswap command; the ones that change something go to the running app when there is one, so it stays the only writer. */

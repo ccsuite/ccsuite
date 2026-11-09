@@ -1,6 +1,7 @@
 package ccsuite.ccacc;
 
 import module java.base;
+import ccsuite.webproxy.TokenEstimate;
 
 /**
  * What each free account has left (PRP 78). Nothing but ccacc spends these accounts, so its own ledger of calls is the whole truth up to the gauge: per account the
@@ -52,10 +53,23 @@ final class FreeEstimator {
     private double promptPerBody = 1.0;
     private double weekRatio = SEED_WEEK_RATIO;
 
-    FreeEstimator(LaneSettings settings) { this.settings = settings; }
+    /** PRP 88: the terms model, always learning; it predicts when {@code costModel} is "terms", else it runs in the shadow. */
+    final FreeCostModel terms;
 
-    /** The token estimate of a request: characters over four (the user's decision for this version; the tokencounter module is a network service and not wired). */
-    static long tokens(long chars) { return chars / 4; }
+    FreeEstimator(LaneSettings settings) { this.settings = settings; this.terms = new FreeCostModel(settings); }
+
+    boolean useTerms() { return "terms".equalsIgnoreCase(settings.costModel()); }
+
+    /** PRP 88: the cost of a call by both models, {@code [used, shadow]}; {@code in} null means the terms model cannot tell (the rate model is then used for both). */
+    synchronized double[] predictBoth(long bodyChars, String cache, String model, FreeCostModel.Input in) {
+        var rate = predict(bodyChars, cache, model);
+        if (in == null) return new double[]{rate, rate};
+        var t = terms.predict(in);
+        return useTerms() ? new double[]{t, rate} : new double[]{rate, t};
+    }
+
+    /** The token estimate of a request, for the ledger: the proxy's one ratio ({@link TokenEstimate#CHARS_PER_TOKEN}, measured 2.47 characters per token on 255 conversations; it was characters over four, the old tokenizer's ratio, PRP 88). */
+    static long tokens(long chars) { return TokenEstimate.tokens(chars); }
 
     private Acc acc(String id) { return accs.computeIfAbsent(id, k -> new Acc()); }
 
@@ -89,34 +103,39 @@ final class FreeEstimator {
 
     synchronized double predict(long bodyChars, String cache) { return predict(bodyChars, cache, SONNET); }
 
-    /** A new conversation must leave room to summarise itself: the summary is about {@code summaryShare} of the input in OUTPUT tokens, and an output token costs {@code outputWeight} input tokens (measured 4.0 to 4.6, the PRP uses 5). So the input counts this many times when starting: 2.0 with the defaults. */
-    double summaryReserve() { return 1 + settings.summaryShare() * settings.outputWeight(); }
-
-    /** The cost to hold back when a NEW conversation is placed or guarded: its start, its prompt counted with the summary reserve, the reply. */
+    /** The cost to hold back when a NEW conversation is placed: its start, its prompt, the reply. No summary reserve (PRP 84): the safe start already leaves the room to summarise. */
     synchronized double predictStart(long bodyChars, String model) {
-        return fixed(model, "new") + rate(model) * bodyChars * promptPerBody * summaryReserve() / 10_000.0 + reply(model);
+        if (useTerms()) return terms.predict(new FreeCostModel.Input(model, "new", bodyChars * promptPerBody, 0, null, null));
+        return fixed(model, "new") + rate(model) * bodyChars * promptPerBody / 10_000.0 + reply(model);
     }
 
-    /** The biggest request body (characters) a new chat can start with when this much room is left, keeping the margin and the summary reserve: what fits. */
+    /** The biggest request body (characters) a new chat can start with when this much room is left, keeping the margin: what fits the points. */
     synchronized double maxChars(double roomPoints, String model) {
+        if (useTerms()) return terms.maxChars(roomPoints, model) / promptPerBody;
         var left = roomPoints - settings.guardMarginPoints() - fixed(model, "new") - reply(model);
-        return Math.max(0, left / summaryReserve() / rate(model) * 10_000.0 / promptPerBody);
+        return Math.max(0, left / rate(model) * 10_000.0 / promptPerBody);
     }
 
-    /** The largest first call, uncached, with room to summarise it, that a completely unloaded free account takes on Sonnet 5.5. */
+    /** The largest first call, uncached, that a completely unloaded free account takes on Sonnet 5.5 by points. */
     double ceilingChars() { return maxChars(100, SONNET); }
 
-    /** Tokens of a request body: characters over {@code charsPerClaudeCodeToken} (measured 2.6 for code and prose, 2.0 for JSON, with the real tokenizer). */
-    long claudeCodeTokens(double chars) { return Math.round(chars / settings.charsPerClaudeCodeToken()); }
+    /** Estimated input tokens of a request body: the proxy's one ratio ({@link TokenEstimate#CHARS_PER_TOKEN}), never a copy of it (PRP 84). */
+    long claudeCodeTokens(double chars) { return chars <= 0 ? 0 : (long) Math.ceil(chars / TokenEstimate.CHARS_PER_TOKEN); }
 
     /** The input tokens a completely unloaded account takes in one window, uncached (measured: 660,000 to 770,000). */
     long windowInputTokens() { return Math.round(settings.windowInputTokens()); }
 
-    /** The largest conversation that can safely be started: the window, less the reserve to summarise it. */
-    long actualMaxInputTokens() { return Math.round(settings.windowInputTokens() / summaryReserve()); }
+    /** The largest conversation that may be started: the safe start (a setting, 340,000 by default; half the window, the rest kept to summarise). */
+    long actualMaxInputTokens() { return Math.round(settings.safeStartTokens()); }
 
-    /** Work freely up to here; between here and {@link #actualMaxInputTokens()} close the cycle (PRP status, new conversation). Claude Code is told to compact here. */
-    long workZoneTokens() { return actualMaxInputTokens() / 2; }
+    /** Work freely up to here (a setting, 170,000 by default); between here and {@link #actualMaxInputTokens()} close the cycle (PRP status, new conversation). Claude Code is told to compact here. */
+    long workZoneTokens() { return Math.round(settings.workZoneTokens()); }
+
+    /** Where Claude Code fires its own automatic compaction, as a fraction of CLAUDE_CODE_AUTO_COMPACT_WINDOW (PRP 86: inferred from one session, 136K for a 170K window; not documented by Claude Code). */
+    static final double COMPACT_FIRE_FRACTION = 0.8;
+
+    /** The window to give Claude Code so its own compaction (the backstop) fires at or just above the hard zone, never below it (PRP 86 R3). */
+    long compactWindowTokens() { return (long) Math.ceil(actualMaxInputTokens() / COMPACT_FIRE_FRACTION - 1e-6); }
 
     /** The limits in words, for the status command. */
     String limitText() {
@@ -131,7 +150,7 @@ final class FreeEstimator {
             "windowInputTokens=" + windowInputTokens(),
             "actualMaxInputTokens=" + actualMaxInputTokens(),
             "workZoneTokens=" + workZoneTokens(),
-            "compactTokens=" + workZoneTokens(),
+            "compactTokens=" + compactWindowTokens(),
             "ceilingChars=" + Math.round(ceilingChars()),
             "ceilingTokens=" + claudeCodeTokens(ceilingChars()),
             "haikuCeilingChars=" + Math.round(maxChars(100, "claude-haiku-5-5")));
@@ -239,6 +258,7 @@ final class FreeEstimator {
 
     private void learn(FreeLedger.Call c) {
         if (c.account() == null || c.status() >= 400) return;
+        terms.learn(c);
         if ("new".equals(c.cache()) && c.promptChars() != null && c.chars() >= 20_000) {   // how much prompt the proxy makes of a body: the cost follows the prompt
             var ratio = Math.max(0.3, Math.min(1.5, (double) c.promptChars() / c.chars()));
             promptPerBody += ALPHA * (ratio - promptPerBody);

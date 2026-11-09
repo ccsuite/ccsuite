@@ -16,7 +16,7 @@ import javafx.scene.layout.VBox;
  * the window is open and not at all when it is closed. Keyboard first: Up/Down choose, Del kicks, S suspends, U lifts,
  * R sets the rate, T throttles.
  */
-final class ClientsPane extends VBox {
+final class ClientsPane extends VBox implements Page {
 
     static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm:ss").withZone(ZoneId.systemDefault());
 
@@ -107,14 +107,14 @@ final class ClientsPane extends VBox {
 
     // ---- refreshing, only while the window is open
 
-    void start() {
+    @Override public void start() {
         if (ticker != null) return;
         refresh();
         ticker = Executors.newSingleThreadScheduledExecutor(r -> Thread.ofPlatform().daemon().name("ccacc-clients").unstarted(r));
         ticker.scheduleWithFixedDelay(() -> Platform.runLater(this::refresh), 2, 2, TimeUnit.SECONDS);
     }
 
-    void stop() {
+    @Override public void stop() {
         if (ticker != null) ticker.shutdownNow();
         ticker = null;
     }

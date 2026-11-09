@@ -66,7 +66,7 @@ final class CallsCli {
     static final String HELP = """
         ccacc calls [--job TAG] [--since 30m] [--by job|session|account|model] [--json] [--file PATH] [--problems] [--slow 60s]
           with --since (or --problems) the text ends with what needs attention: the calls that failed, the slow ones (over --slow, 60 s unless said) and the ones still open (asked of the running app, read-only);
-          --problems --json prints that alone as JSON ({failed, slow, open}); nothing here changes any state.
+          --problems --json prints that alone as JSON ({failed, unparsed, slow, open}); nothing here changes any state.
           what the lanes served, read from the free lane's call log (~/ccsuite/webproxy/calls.jsonl) and the paid lane's (~/ccsuite/ccacc/lane-calls.jsonl; mode paid, with the account): per group the calls, ok and failed, how many continued a
           chat against started a new one (or a fresh one), the characters sent and received, the median and total time, and per account the five-hour gauge
           from the first call to the last (the points the run cost; the gauge moves in steps of one point, so judge a run by that span).

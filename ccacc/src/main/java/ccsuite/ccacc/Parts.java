@@ -73,7 +73,8 @@ final class Parts {
 
     void startWidget() {
         if (widget != null) return;
-        widget = new UsageWidget().hostedBy(core.usageSource, this::liveActiveId, () -> TrayText.autoOrOff(watcher == null ? null : watcher.mode()));
+        widget = new UsageWidget().hostedBy(core.usageSource, this::liveActiveId, () -> TrayText.autoOrOff(watcher == null ? null : watcher.mode()))
+                .onActivate(id -> SwitchConfirm.ask(this, id));
         widget.start(new Stage());
     }
 

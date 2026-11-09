@@ -34,10 +34,4 @@ record FreeOverall(int accounts, int withRoom, int fiveCount, int weekCount, dou
     Double fiveFraction() { return Double.isNaN(five) ? null : five; }
 
     Double weekFraction() { return Double.isNaN(week) ? null : week; }
-
-    String text() {
-        return accounts == 0 ? "no free accounts" : "Free overall: 5h " + pct(five) + " - week " + pct(week) + " - " + withRoom + " of " + accounts + " with room";
-    }
-
-    static String pct(double f) { return Double.isNaN(f) ? "-" : Math.round(f * 100) + "%"; }
 }

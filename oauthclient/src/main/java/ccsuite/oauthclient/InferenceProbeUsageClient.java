@@ -51,28 +51,49 @@ public final class InferenceProbeUsageClient {
                 .header("User-Agent", UA)
                 .POST(BodyPublishers.ofString(PROBE_BODY)).build();
         var resp = http.send(req, BodyHandlers.ofString());
-        if (resp.statusCode() / 100 != 2) throw new UsageHttpException(resp.statusCode(), resp.body());
+        var usage = parse(resp.statusCode(), resp.headers());
+        if (usage != null) {
+            if (resp.statusCode() / 100 != 2) log.info("probe answered HTTP {} with the account's usage in its headers: 5h={} 7d={}", resp.statusCode(), usage.fiveHourPct(), usage.sevenDayPct());
+            return usage;
+        }
+        log.warn("probe failed: HTTP {} status={} reset={} retry-after={}", resp.statusCode(),
+                resp.headers().firstValue("anthropic-ratelimit-unified-status").orElse("-"), resp.headers().firstValue("anthropic-ratelimit-unified-reset").orElse("-"),
+                resp.headers().firstValue("retry-after").orElse("-"));
+        throw new UsageHttpException(resp.statusCode(), resp.body());
+    }
 
-        var h5 = utilizationPct(resp, "anthropic-ratelimit-unified-5h-utilization");
-        var h5Reset = resetIso(resp, "anthropic-ratelimit-unified-5h-reset");
-        var d7 = utilizationPct(resp, "anthropic-ratelimit-unified-7d-utilization");
-        var d7Reset = resetIso(resp, "anthropic-ratelimit-unified-7d-reset");
+    /**
+     * The reading in the answer's headers, or null when there is none. A used-up account answers HTTP 429, and its headers still say how much it has used and when each
+     * window resets; with only the rejected claim and the reset, that claimed window is at 100% until the reset and the other is not known. A 2xx answer is always a reading.
+     */
+    static AccountUsage parse(int status, HttpHeaders h) {
+        var h5 = pct(h, "anthropic-ratelimit-unified-5h-utilization");
+        var h5Reset = iso(h, "anthropic-ratelimit-unified-5h-reset");
+        var d7 = pct(h, "anthropic-ratelimit-unified-7d-utilization");
+        var d7Reset = iso(h, "anthropic-ratelimit-unified-7d-reset");
+        var ok = status / 100 == 2;
+        if (!ok && h5 == null && d7 == null && "rejected".equals(h.firstValue("anthropic-ratelimit-unified-status").orElse(""))) {
+            var reset = iso(h, "anthropic-ratelimit-unified-reset");
+            var claim = h.firstValue("anthropic-ratelimit-unified-representative-claim").orElse("");
+            if (reset != null && claim.startsWith("five_hour")) { h5 = 100.0; h5Reset = reset; }
+            else if (reset != null && claim.startsWith("seven_day")) { d7 = 100.0; d7Reset = reset; }
+        }
+        if (!ok && h5 == null && d7 == null) return null;
         log.debug("probe usage: 5h={} ({}) 7d={} ({})", h5, h5Reset, d7, d7Reset);
-        return new AccountUsage(h5, h5Reset, d7, d7Reset,
-                OAuthUsageClient.elapsedPct(d7Reset, OAuthUsageClient.SEVEN_DAY_SECONDS));
+        return new AccountUsage(h5, h5Reset, d7, d7Reset, OAuthUsageClient.elapsedPct(d7Reset, OAuthUsageClient.SEVEN_DAY_SECONDS));
     }
 
     /** Header carries a 0..1 fraction; the rest of the codebase works in 0..100 percentages. */
-    private static Double utilizationPct(HttpResponse<String> resp, String header) {
-        return resp.headers().firstValue(header).map(v -> {
+    private static Double pct(HttpHeaders resp, String header) {
+        return resp.firstValue(header).map(v -> {
             try { return Double.parseDouble(v) * 100.0; } catch (NumberFormatException e) { return null; }
         }).orElse(null);
     }
 
     /** Header carries a unix-second timestamp; convert to the ISO-8601 string the rest of the
      *  codebase expects (parseable by {@code OffsetDateTime.parse}). */
-    private static String resetIso(HttpResponse<String> resp, String header) {
-        return resp.headers().firstValue(header).map(v -> {
+    private static String iso(HttpHeaders resp, String header) {
+        return resp.firstValue(header).map(v -> {
             try { return Instant.ofEpochSecond(Long.parseLong(v)).toString(); }
             catch (NumberFormatException e) { return null; }
         }).orElse(null);

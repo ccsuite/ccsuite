@@ -84,10 +84,46 @@ class LaneCommandsTest {
         assertEquals(1, ledger.calls(null).size());
     }
 
+    @Test void theRequestLogIsOffByDefaultAndSetByName(@TempDir Path dir) {
+        assertFalse(new LaneSettings().bodyLog());
+        assertEquals(14, new LaneSettings().bodyLogDays());
+        var store = new CcaccSettingsStore(dir.resolve("settings.json"));
+        var c = new LaneCommands(store, null);
+        assertFalse(c.run(List.of("lanes", "set", "bodyLog", "maybe")).ok());
+        assertFalse(c.run(List.of("lanes", "set", "bodyLogDays", "0")).ok());
+        assertFalse(Files.exists(dir.resolve("settings.json")), "nothing was written");
+        var on = c.run(List.of("lanes", "set", "bodyLog", "on"));
+        assertTrue(on.ok() && on.message().contains("applies when the lanes next start"), on.message());
+        assertTrue(c.run(List.of("lanes", "set", "bodyLogDays", "7")).ok());
+        assertTrue(store.load().lanes().bodyLog());
+        assertEquals(7, store.load().lanes().bodyLogDays());
+        assertTrue(c.run(List.of("lanes", "set", "bodyLog", "off")).ok());
+        assertFalse(store.load().lanes().bodyLog());
+    }
+
     @Test void showListsTheTwoPorts(@TempDir Path dir) {
         var reply = new LaneCommands(new CcaccSettingsStore(dir.resolve("settings.json")), null).run(List.of("lanes"));
         assertTrue(reply.ok());
         assertTrue(reply.message().contains("pclaude") && reply.message().contains("8681") && reply.message().contains("fclaude") && reply.message().contains("8686"), reply.message());
         assertFalse(reply.message().contains("8687"));
+    }
+
+    @Test void aRefusedLimitPortOrCountChangesNothingAndTheGoodOnesAreKept(@TempDir Path dir) {
+        var store = new CcaccSettingsStore(dir.resolve("settings.json"));
+        var c = new LaneCommands(store, null);
+        for (var bad : List.of(List.of("freeFiveLimit", "1.5"), List.of("freeFiveLimit", "0"), List.of("freeWeekLimit", "-0.2"), List.of("perAccountSlots", "0"),
+                List.of("freePingEveryMinutes", "0"), List.of("freePingFreshMinutes", "0"), List.of("freePingSpreadSeconds", "-1"),
+                List.of("fclaudePort", "80"), List.of("pclaudePort", "70000"), List.of("pclaudePort", "8686"), List.of("fclaudePort", "8681"))) {
+            var r = c.run(List.of("lanes", "set", bad.get(0), bad.get(1)));
+            assertFalse(r.ok(), bad + " must be refused");
+            assertTrue(r.message().contains(bad.get(0)) || r.message().contains("port") || r.message().contains("between"), r.message());
+        }
+        assertFalse(Files.exists(dir.resolve("settings.json")), "nothing was written");
+        assertTrue(c.run(List.of("lanes", "set", "freeFiveLimit", "0.95")).ok());
+        assertTrue(c.run(List.of("lanes", "set", "pclaudePort", "9001")).ok());
+        assertTrue(c.run(List.of("lanes", "set", "fclaudePort", "9002")).ok());
+        var l = store.load().lanes();
+        assertEquals(0.95, l.freeFiveLimit());
+        assertEquals(List.of(9001, 9002), List.of(l.pclaudePort(), l.fclaudePort()));
     }
 }

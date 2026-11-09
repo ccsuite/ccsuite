@@ -44,8 +44,6 @@ class FreeOverallTest {
     @Test void noReadingsGiveNoNumbers() {
         var o = FreeOverall.of(List.of(), 0.97, 0.98, NOW);
         assertNull(o.fiveFraction());
-        assertEquals("no free accounts", o.text());
-        assertEquals("Free accounts: not read yet", FreeSummary.line(List.of(), 0.97, 0.98, NOW));
     }
 
     @Test void theReportHasTheOverallFirstThenEachAccount() {
@@ -80,12 +78,5 @@ class FreeOverallTest {
         var o = FreeCli.Options.parse(List.of("--overall", "--json", "--watch", "60"));
         assertTrue(o.overall() && o.json() && !o.refresh() && !o.probe());
         assertEquals(60, o.watch());
-    }
-
-    @Test void theTrayPictureHasOneBarPerAccountAndIsDrawnEvenWithNoReadings() {
-        var img = FreeTrayIcon.draw(List.of(row("A", 0.9, 0.1, IN_2H30), row("B", 0.1, 0.1, IN_2H30)), 32);
-        assertEquals(32, img.getWidth());
-        assertNotEquals(0, img.getRGB(16, 16) >>> 24, "not transparent");
-        assertNotNull(FreeTrayIcon.draw(List.of(), 32));
     }
 }

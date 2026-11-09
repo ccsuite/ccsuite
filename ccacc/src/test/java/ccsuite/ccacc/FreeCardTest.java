@@ -15,8 +15,12 @@ class FreeCardTest {
         return new FreeGauges.Row(id, id + "@example.org", five, seven, "within_limit", resetsAt, NOW, "claude-haiku-5-5", null, 10);
     }
 
+    static List<FreeStates.Entry> entries(FreeGauges.Row... rows) {
+        return Arrays.stream(rows).map(r -> FreeStates.entry(new ccsuite.base.model.CCAPICredential().id(r.id()).tier(0).key("k").orgId("o"), r.five() == null ? null : r, false, NOW, java.time.ZoneOffset.UTC)).toList();
+    }
+
     @Test void eachFreeAccountIsAPageWithItsFiveHourResetAndNoWeeklyReset() {
-        var pages = FreeCard.accounts(List.of(row("A", 0.20, 0.10, IN_2H30), row("B", null, null, null)), NOW);
+        var pages = FreeCard.accounts(entries(row("A", 0.20, 0.10, IN_2H30), row("B", null, null, null)), NOW);
         assertEquals(2, pages.size());
         assertEquals(0, pages.get(0).credential().tier());
         assertEquals(20.0, pages.get(0).getFiveHourUsagePercent(), 1e-9);
@@ -26,7 +30,7 @@ class FreeCardTest {
     }
 
     @Test void aWindowThatResetSinceTheReadingShowsAsUnused() {
-        var page = FreeCard.accounts(List.of(row("A", 0.99, 0.10, NOW.getEpochSecond() - 30)), NOW).get(0);
+        var page = FreeCard.accounts(entries(row("A", 0.99, 0.10, NOW.getEpochSecond() - 30)), NOW).get(0);
         assertEquals(0.0, page.getFiveHourUsagePercent(), 1e-9);
     }
 

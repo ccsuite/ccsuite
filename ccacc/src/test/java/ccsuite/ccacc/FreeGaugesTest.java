@@ -43,7 +43,7 @@ class FreeGaugesTest {
     @Test
     void aFailedProbeKeepsTheLastNumbersAndSaysWhy(@TempDir Path dir) {
         var fail = new boolean[1];
-        FreeGauges.Probe probe = (c, m) -> { if (fail[0]) throw new IOException("Failed to send message: HTTP 429 - rate limited"); return reading(0.5, 0.02); };
+        FreeGauges.Probe probe = (c, m) -> { if (fail[0]) throw new IOException("Failed to send message: HTTP 500 - upstream error"); return reading(0.5, 0.02); };
         var gauges = new FreeGauges(() -> List.of(account("F1", 0, "k", "o")), probe, dir);
         gauges.refreshAll();
         fail[0] = true;
@@ -51,7 +51,7 @@ class FreeGaugesTest {
         var row = gauges.snapshot().get(0);
         assertFalse(row.ok());
         assertEquals(0.5, row.five());
-        assertTrue(row.problem().contains("429"));
+        assertTrue(row.problem().contains("500"));
     }
 
     @Test
@@ -72,5 +72,16 @@ class FreeGaugesTest {
         assertEquals("[####------]", FreeGauges.bar(0.41));
         assertEquals(" 41%", FreeGauges.percent(0.41));
         assertEquals("now", FreeGauges.untilReset(1793937600L, Instant.ofEpochSecond(1793937700L)));
+    }
+
+    // The error texts below are the ones the server sent on 2026-11-07 to a probe with a wrong session key and with a wrong organisation id.
+    @Test void aFailureIsReportedInTheServersWordsAndOnlyMeasuredCodesCarryARemedy() {
+        var invalid = "gauge: create chat failed, HTTP 403 {\"type\":\"error\",\"error\":{\"type\":\"permission_error\",\"message\":\"Invalid authorization\",\"details\":{\"error_code\":\"account_session_invalid\",\"error_visibility\":\"user_facing\"}},\"request_id\":\"req_x\"}";
+        assertEquals("HTTP 403 creating the chat permission_error account_session_invalid: Invalid authorization (the server no longer accepts this session key: it has to be replaced)", FreeGauges.why(new IOException(invalid)));
+        var missing = "gauge: create chat failed, HTTP 404 {\"type\":\"error\",\"error\":{\"type\":\"not_found_error\",\"message\":\"Not found.\",\"details\":{\"error_visibility\":\"user_facing\"}},\"request_id\":\"req_y\"}";
+        assertEquals("HTTP 404 creating the chat not_found_error: Not found. (no such organisation id)", FreeGauges.why(new IOException(missing)));
+        assertEquals("HTTP 403 permission_error: blocked", FreeGauges.why(new IOException("gauge: HTTP 403 {\"error\":{\"type\":\"permission_error\",\"message\":\"blocked\"}}")), "another 403 is not called a cookie problem");
+        assertEquals("HTTP 401", FreeGauges.why(new IOException("gauge: HTTP 401 ")), "no code is explained beyond what is known");
+        assertEquals("Connect timed out", FreeGauges.why(new IOException("Connect timed out")));
     }
 }

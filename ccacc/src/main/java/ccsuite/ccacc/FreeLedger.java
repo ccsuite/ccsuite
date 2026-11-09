@@ -18,10 +18,19 @@ final class FreeLedger {
      * (null when it carried none). {@code predicted} is the estimator's cost in points of the five-hour window, {@code observed} the points the gauge actually moved
      * (null when it cannot be told), {@code alone} whether no other call overlapped on that account (only then is {@code observed} the cost of this call). {@code chars} is the size of the request body; {@code promptChars} the size of the prompt the proxy built from it (what the web is charged for; null when not told).
      * {@code cache}: "new" (a chat starts, the whole conversation is sent) or "continued" (a chat the lane holds, only what is new is sent).
+     * PRP 88 (null in older lines): {@code replyChars} the characters of the answer (text and tool input), {@code heldChars} what the chat held before this call (prompts sent and replies),
+     * {@code gapS} the seconds since the chat's previous call, {@code predictedOther} the cost the model NOT in use predicted (the shadow, so the two compare on the same calls).
      */
     record Call(Instant t, String account, String model, long chars, long tokens, String cache, int status, long ms,
                 Double before5, Double before7, Long reset5Before, Double after5, Double after7, Long reset5After,
-                double predicted, Double observed, boolean alone, String session, Long promptChars) {
+                double predicted, Double observed, boolean alone, String session, Long promptChars,
+                Long replyChars, Long heldChars, Long gapS, Double predictedOther) {
+
+        /** A call without the PRP 88 fields. */
+        Call(Instant t, String account, String model, long chars, long tokens, String cache, int status, long ms, Double before5, Double before7, Long reset5Before,
+             Double after5, Double after7, Long reset5After, double predicted, Double observed, boolean alone, String session, Long promptChars) {
+            this(t, account, model, chars, tokens, cache, status, ms, before5, before7, reset5Before, after5, after7, reset5After, predicted, observed, alone, session, promptChars, null, null, null, null);
+        }
 
         /** A call whose prompt size is not known (the proxy did not say). */
         Call(Instant t, String account, String model, long chars, long tokens, String cache, int status, long ms, Double before5, Double before7, Long reset5Before,
@@ -50,13 +59,18 @@ final class FreeLedger {
             m.put("alone", alone);
             m.put("session", session);
             m.put("promptChars", promptChars);
+            if (replyChars != null) m.put("replyChars", replyChars);
+            if (heldChars != null) m.put("heldChars", heldChars);
+            if (gapS != null) m.put("gapS", gapS);
+            if (predictedOther != null) m.put("predictedOther", predictedOther);
             return m;
         }
 
         static Call of(JsonNode j) {
             return new Call(Instant.parse(j.path("t").asText()), text(j, "account"), text(j, "model"), j.path("chars").asLong(), j.path("tokens").asLong(), text(j, "cache"),
                     j.path("status").asInt(), j.path("ms").asLong(), dbl(j, "before5"), dbl(j, "before7"), lng(j, "reset5Before"), dbl(j, "after5"), dbl(j, "after7"), lng(j, "reset5After"),
-                    j.path("predicted").asDouble(), dbl(j, "observed"), j.path("alone").asBoolean(), text(j, "session"), lng(j, "promptChars"));
+                    j.path("predicted").asDouble(), dbl(j, "observed"), j.path("alone").asBoolean(), text(j, "session"), lng(j, "promptChars"),
+                    lng(j, "replyChars"), lng(j, "heldChars"), lng(j, "gapS"), dbl(j, "predictedOther"));
         }
     }
 
@@ -82,6 +96,23 @@ final class FreeLedger {
         }
     }
 
+    /** One ping of the ping round (PRP 79), in {@code pings-<UTC day>.jsonl}: why the account was due, and the gauge the ping read ({@code problem} set and the gauge null when it failed). */
+    record Ping(Instant t, String account, String why, Double five, Double seven, Long reset5, String status, String problem) {
+
+        Map<String, Object> toMap() {
+            var m = new LinkedHashMap<String, Object>();
+            m.put("t", t.toString());
+            m.put("account", account);
+            m.put("why", why);
+            m.put("u5h", five);
+            m.put("u7d", seven);
+            m.put("reset5h", reset5);
+            m.put("status", status);
+            m.put("problem", problem);
+            return m;
+        }
+    }
+
     final Path dir;
 
     FreeLedger(Path dir) { this.dir = dir; }
@@ -91,6 +122,36 @@ final class FreeLedger {
     synchronized void append(Call c) { write("calls-", c.t(), c.toMap()); }
 
     synchronized void append(Correction c) { write("corrections-", c.t(), c.toMap()); }
+
+    synchronized void append(Ping p) { write("pings-", p.t(), p.toMap()); }
+
+    /** The successful pings from {@code since} on, in time order; a failed ping (no gauge) and a torn line are skipped. */
+    List<Ping> pings(Instant since) {
+        var out = new ArrayList<Ping>();
+        for (var l : lines("pings-", since)) {
+            try {
+                var j = JSON.readTree(l);
+                var p = new Ping(Instant.parse(j.path("t").asText()), text(j, "account"), text(j, "why"), dbl(j, "u5h"), dbl(j, "u7d"), lng(j, "reset5h"), text(j, "status"), text(j, "problem"));
+                if (p.five() != null && (since == null || !p.t().isBefore(since))) out.add(p);
+            } catch (IOException | RuntimeException e) { /* a torn line */ }
+        }
+        out.sort(Comparator.comparing(Ping::t));
+        return out;
+    }
+
+    /** The latest reading of each account in the ledger from {@code since} on, from the calls (the gauge their answer carried), the corrections (probe and call readings alike) and the pings (a ping that agrees with the estimate leaves no correction, only its own line). */
+    List<Seed> latestReadings(Instant since) {
+        var latest = new LinkedHashMap<String, Seed>();
+        calls(since).forEach(c -> { if (c.after5() != null) latest.merge(c.account(), new Seed(c.account(), c.t(), c.after5(), c.after7(), c.reset5After()), Seed::newer); });
+        corrections(since).forEach(c -> latest.merge(c.account(), new Seed(c.account(), c.t(), c.reading5() / 100, c.reading7() == null ? null : c.reading7() / 100, c.reset5()), Seed::newer));   // a correction holds points, a call a fraction
+        pings(since).forEach(p -> latest.merge(p.account(), new Seed(p.account(), p.t(), p.five(), p.seven(), p.reset5()), Seed::newer));
+        return List.copyOf(latest.values());
+    }
+
+    /** A reading read back from the ledger, as fractions of a window. */
+    record Seed(String account, Instant t, Double five, Double seven, Long reset5) {
+        Seed newer(Seed o) { return o.t.isAfter(t) ? o : this; }
+    }
 
     private void write(String prefix, Instant t, Map<String, Object> line) {
         try {

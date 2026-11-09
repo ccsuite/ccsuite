@@ -69,8 +69,15 @@ final class CardView {
         if (cur >= count()) cur = 0;
     }
 
-    /** A click in the button strip: the lower left arrow goes back, anywhere else in the strip goes forward. */
-    void click(double x, double y, double h) { page(x < BTN / 2 && y > h * 0.68 ? -1 : 1); }
+    /** What a press in the button strip means: the account name (make it the active one), the tier mark (read it again now), or a page arrow. */
+    enum Hit { NAME, TYPE, BACK, FORWARD }
+
+    /** The name is the top line of the strip, the tier mark (1, 5, F) is right of the check mark in the line below it; the lower left arrow goes back, anywhere else goes forward. */
+    static Hit hit(double x, double y, double h) {
+        if (y < h * 0.27) return Hit.NAME;
+        if (y < h * 0.48 && x >= BTN / 2 - 1) return Hit.TYPE;
+        return x < BTN / 2 && y > h * 0.68 ? Hit.BACK : Hit.FORWARD;
+    }
 
     void page(int d) {
         if (list.isEmpty()) return;

@@ -1,136 +1,183 @@
 package ccsuite.ccacc;
 
-import ccsuite.usagetracker.ui.UsageWidget;
-import ccsuite.oauthswap.watch.WatchMode;
+import module java.base;
+import javafx.application.Platform;
 import javafx.geometry.Insets;
+import javafx.scene.Node;
 import javafx.scene.Scene;
-import javafx.scene.control.*;
+import javafx.scene.control.Label;
+import javafx.scene.control.Tab;
+import javafx.scene.control.TabPane;
 import javafx.scene.input.KeyCode;
-import javafx.scene.layout.*;
+import javafx.scene.control.Button;
+import javafx.scene.input.KeyEvent;
+import javafx.scene.layout.HBox;
+import javafx.scene.layout.Priority;
+import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.function.Consumer;
-import java.util.function.Supplier;
-
-import static ccsuite.ccacc.TrayText.*;
-
 /**
- * The simple window, in three tabs (the third, Clients, is ClientsPane: who calls the gate and the means to rein them in). Accounts: the accounts with their usage, a button to switch to the chosen one,
- * the watcher's mode, the on/off switches of the parts, and the way into the account manager. Total: all accounts
- * as one (the averages the taskbar card shows on its ALL page). The tray menu stays for the quick things.
- * Keyboard first: Up and Down choose, Enter switches, Esc closes. Redrawn when the watcher polls and when it is
- * shown, never on a timer (a resident app must not keep JavaFX's frame clock running).
+ * The one window of ccacc, in tabs: Paid Accounts (usage, switching, the watcher's mode), Free Accounts, Lanes (the switch and the log), Clients (who calls the gate),
+ * Servers (every part as a switch) and Manage (the account editor, paid and free). It opens at once: the window shows first and the tab in front is filled right
+ * after, a tab that was never in front is never built, and a tab not in front costs nothing ({@link Page}). A resident app must not keep JavaFX's frame clock
+ * running, so a tab refreshes on a timer only while it is in front of a shown window. The tray menu stays for the quick things; Esc closes.
  */
 final class MainWindow {
-
-    static final String MONO = "-fx-font-family: 'Consolas'; -fx-font-size: 13;";
 
     final Parts parts;
     final WatchBridge bridge;
     final Supplier<String> statusText;
-    final String color;
     final Stage stage = new Stage();
     final Label status = new Label();
-    final Label note = new Label();
-    final Label total = new Label();
-    final ListView<String> accounts = new ListView<>();
-    final List<String> ids = new ArrayList<>();
-    final ToggleGroup modes = new ToggleGroup();
-    final CheckBox watch = new CheckBox("Account watcher"), widget = new CheckBox("Usage widget"),
-            card = new CheckBox("Card in the taskbar"), server = new CheckBox("Local server");
+    final PaidPane paid;
+    final FreePane free;
+    final LanesPane lanes;
     final ClientsPane clients;
-    AccountsWindow manager;
-    boolean redrawing;
+    final ServersPane servers;
+    final AccountsPane manage;
+    final TabPane tabs = new TabPane();
+    /** The keys of the tab in front, along the bottom: each is a button that does what its key does. */
+    final HBox legend = new HBox(8);
+    final Path memory;
+    final Map<Tab, Page> pages = new LinkedHashMap<>();
+    final Tab paidTab, freeTab, lanesTab, clientsTab, serversTab, manageTab;
+    /** Show or hide the floating usage windows, which never appear by themselves; set by the app. */
+    Runnable openPaidDialog = () -> {}, openFreeDialog = () -> {};
 
-    MainWindow(Parts parts, WatchBridge bridge, String color, Supplier<String> statusText) {
+    MainWindow(Parts parts, WatchBridge bridge, String color, Supplier<String> statusText, FreePane free, TrayItems items) {
+        this(parts, bridge, color, statusText, free, items, null);
+    }
+
+    /** {@code memory} is the file where the window keeps its position, size and tab (null: none). */
+    MainWindow(Parts parts, WatchBridge bridge, String color, Supplier<String> statusText, FreePane free, TrayItems items, Path memory) {
+        this.memory = memory;
         this.parts = parts;
         this.bridge = bridge;
         this.statusText = statusText;
-        this.color = color;
+        this.free = free;
+        paid = new PaidPane(parts, bridge);
+        lanes = new LanesPane(parts);
+        clients = new ClientsPane(parts);
+        servers = new ServersPane(parts, items);
+        manage = new AccountsPane(parts, parts.core == null ? null : new Accounts(parts.core.credentials, parts.core.creds, this::accountsChanged));
+        paid.onDialog = () -> openPaidDialog.run();
+        free.onDialog = () -> openFreeDialog.run();
+        paidTab = tab("Paid Accounts", paid);
+        freeTab = tab("Free Accounts", free);
+        lanesTab = tab("Lanes", lanes);
+        clientsTab = tab("Clients", clients);
+        serversTab = tab("Servers", servers);
+        manageTab = tab("Manage", manage);
+
         var title = new Label("ccacc");
         title.setStyle("-fx-font-size: 20; -fx-font-weight: bold; -fx-text-fill: white;");
         status.setStyle("-fx-text-fill: white;");
         var band = new VBox(2, title, status);
         band.setPadding(new Insets(10, 14, 10, 14));
         band.setStyle("-fx-background-color: " + color + ";");
-
-        clients = new ClientsPane(parts);
-        var tabs = new TabPane(tab("Accounts", accountsPage()), tab("Total", totalPage()), tab("Clients", clients));
-        var scene = new Scene(new VBox(band, tabs), 780, 560);
-        scene.setOnKeyPressed(e -> {
-            if (e.getCode() == KeyCode.ESCAPE) stage.hide();
-            else if (e.getCode() == KeyCode.ENTER && accounts.isFocused()) switchToChosen();
-        });
-        stage.setOnShown(e -> clients.start());
-        stage.setOnHidden(e -> clients.stop());
+        legend.setPadding(new Insets(5, 14, 5, 14));
+        legend.setStyle("-fx-background-color: #eeeeee; -fx-border-color: #cccccc transparent transparent transparent;");
+        var scene = new Scene(new VBox(band, tabs, legend), 920, 640);
+        VBox.setVgrow(tabs, Priority.ALWAYS);
+        scene.setOnKeyPressed(e -> { if (e.getCode() == KeyCode.ESCAPE) stage.hide(); });
+        scene.addEventFilter(KeyEvent.KEY_PRESSED, this::key);
+        tabs.getSelectionModel().selectedItemProperty().addListener((o, was, now) -> sync());
+        stage.setOnShown(e -> Platform.runLater(this::sync));
+        stage.setOnHidden(e -> { remember(); sync(); });
         stage.setTitle("ccacc");
         stage.getIcons().setAll(FxImages.windowIcons());
         stage.setScene(scene);
+        recall();
     }
 
-    static Tab tab(String text, javafx.scene.Node content) {
+    Tab tab(String text, Node content) {
         var t = new Tab(text, content);
         t.setClosable(false);
+        pages.put(t, (Page) content);
+        tabs.getTabs().add(t);
         return t;
     }
 
-    VBox accountsPage() {
-        accounts.setStyle(MONO);
-        accounts.setPrefHeight(190);
-        var switchButton = new Button("Switch to chosen account  (Enter)");
-        switchButton.setOnAction(e -> switchToChosen());
-        var refresh = new Button("Refresh now");
-        refresh.setOnAction(e -> { if (parts.watcher != null) parts.watcher.pollNow(); });
-        var manage = new Button("Manage accounts…");
-        manage.setOnAction(e -> openManager());
-
-        var modeRow = new HBox(14, new Label("Mode:"));
-        for (var m : WatchMode.values()) {
-            var b = new RadioButton(modeText(m));
-            b.setUserData(m);
-            b.setToggleGroup(modes);
-            modeRow.getChildren().add(b);
-        }
-        modes.selectedToggleProperty().addListener((o, was, now) -> { if (!redrawing && now != null) parts.mode((WatchMode) now.getUserData()); });
-        wire(watch, parts::watch);
-        wire(widget, parts::widget);
-        wire(card, on -> { if (parts.widget != null) parts.widget.taskbar(on); });
-        card.setVisible(UsageWidget.WINDOWS);
-        card.setManaged(UsageWidget.WINDOWS);
-        wire(server, parts::server);
-
-        note.setWrapText(true);
-        note.setStyle("-fx-text-fill: #8a3b1c;");
-        var legend = new Label("↑/↓ choose · Enter switch · Esc close");
-        legend.setStyle("-fx-font-size: 10; -fx-text-fill: #888;");
-        var page = new VBox(10, accounts, new HBox(10, switchButton, refresh, manage), modeRow, new HBox(16, watch, widget, card, server), note, legend);
-        page.setPadding(new Insets(12, 14, 10, 14));
-        return page;
+    /** Writes down where the window is, how big, and the tab in front. */
+    void remember() {
+        WindowMemory.save(memory, new WindowMemory.Saved(stage.getX(), stage.getY(), stage.getWidth(), stage.getHeight(), tabs.getSelectionModel().getSelectedIndex()));
     }
 
-    VBox totalPage() {
-        total.setStyle(MONO);
-        var page = new VBox(10, total);
-        page.setPadding(new Insets(16, 14, 10, 14));
-        return page;
+    /** Puts the window back as it was left: the size and tab always, the position when some part of it is on a screen. */
+    void recall() {
+        WindowMemory.load(memory).map(s -> WindowMemory.clamp(s, tabs.getTabs().size())).ifPresent(s -> {
+            stage.setWidth(s.width());
+            stage.setHeight(s.height());
+            if (WindowMemory.onScreen(s, javafx.stage.Screen.getScreens().stream().map(javafx.stage.Screen::getVisualBounds).toList())) { stage.setX(s.x()); stage.setY(s.y()); }
+            tabs.getSelectionModel().select(s.tab());
+        });
     }
 
-    void wire(CheckBox box, Consumer<Boolean> action) {
-        box.setOnAction(e -> { if (!redrawing) { action.accept(box.isSelected()); redraw(); } });
+    /** The actions of the tab in front, then Esc: one list for the key handler and the legend. */
+    List<KeyAction> frontKeys() {
+        var page = pages.get(tabs.getSelectionModel().getSelectedItem());
+        var all = new ArrayList<KeyAction>(page == null ? List.of() : page.keys());
+        all.add(new KeyAction(KeyCode.ESCAPE, "Close", stage::hide));
+        return all;
     }
 
-    void openManager() {
-        if (parts.core == null) { note.setText("The accounts are not loaded."); return; }
-        if (manager == null) manager = new AccountsWindow(parts, new Accounts(parts.core.credentials, parts.core.creds, this::accountsChanged), color);
-        manager.show();
+    /** A function key with no modifier runs the front tab's action of that key, wherever the focus is (they are not typing). */
+    void key(KeyEvent e) {
+        if (e.isShiftDown() || e.isControlDown() || e.isAltDown() || e.isMetaDown() || e.getCode() == KeyCode.ESCAPE) return;
+        frontKeys().stream().filter(k -> k.key() == e.getCode()).findFirst().ifPresent(k -> { e.consume(); k.run().run(); });
     }
 
-    /** An account was added, removed or changed: poll again so the numbers follow, and redraw. */
-    void accountsChanged() {
-        if (parts.watcher != null) parts.watcher.pollNow();
-        redrawIfShowing();
+    void legend() {
+        legend.getChildren().setAll(frontKeys().stream().map(k -> {
+            var b = new Button(k.text());
+            b.setMnemonicParsing(false);
+            b.setFocusTraversable(false);
+            b.setOnAction(e -> k.run().run());
+            return (javafx.scene.Node) b;
+        }).toList());
+    }
+
+    /** Starts the tab in front of a shown window and stops every other; the first start of a tab is what builds its content. */
+    void sync() {
+        var front = tabs.getSelectionModel().getSelectedItem();   // not Tab.isSelected(): the listener runs before that flag is updated
+        pages.forEach((t, p) -> { if (stage.isShowing() && t == front) p.start(); else p.stop(); });
+        legend();
+        if (stage.isShowing()) status.setText(statusText.get());
+    }
+
+    static final double DEFAULT_WIDTH = 940, DEFAULT_HEIGHT = 680;
+
+    /** Before the window first shows: a place and a size of its own, wholly on the usable screen, so the system does not choose (it can put the window half off the screen). */
+    void place() {
+        var usable = javafx.stage.Screen.getPrimary().getVisualBounds();
+        var w = Double.isNaN(stage.getWidth()) ? DEFAULT_WIDTH : stage.getWidth();
+        var h = Double.isNaN(stage.getHeight()) ? DEFAULT_HEIGHT : stage.getHeight();
+        var x = Double.isNaN(stage.getX()) ? usable.getMinX() + (usable.getWidth() - Math.min(w, usable.getWidth())) / 2 : stage.getX();
+        var y = Double.isNaN(stage.getY()) ? usable.getMinY() + (usable.getHeight() - Math.min(h, usable.getHeight())) / 2 : stage.getY();
+        var f = WindowMemory.fit(new WindowMemory.Saved(x, y, w, h, 0), usable);
+        stage.setX(f.x());
+        stage.setY(f.y());
+        stage.setWidth(f.width());
+        stage.setHeight(f.height());
+    }
+
+    /** Where the window is and the usable screen, for the command and for finding out why a window sits where it does. */
+    String geometry() {
+        var u = javafx.stage.Screen.getPrimary().getVisualBounds();
+        return "at %.0f,%.0f size %.0fx%.0f on a screen usable from %.0f,%.0f size %.0fx%.0f (scale %.2f)".formatted(stage.getX(), stage.getY(), stage.getWidth(), stage.getHeight(),
+                u.getMinX(), u.getMinY(), u.getWidth(), u.getHeight(), javafx.stage.Screen.getPrimary().getOutputScaleX());
+    }
+
+    /** All of the window on the usable part of its screen: a window placed by default or remembered can overhang an edge or a taskbar. */
+    void fit() {
+        if (Double.isNaN(stage.getWidth()) || Double.isNaN(stage.getHeight())) return;
+        var screens = javafx.stage.Screen.getScreensForRectangle(stage.getX(), stage.getY(), Math.max(1, stage.getWidth()), Math.max(1, stage.getHeight()));
+        var usable = (screens.isEmpty() ? javafx.stage.Screen.getPrimary() : screens.get(0)).getVisualBounds();
+        var f = WindowMemory.fit(new WindowMemory.Saved(stage.getX(), stage.getY(), stage.getWidth(), stage.getHeight(), 0), usable);
+        stage.setX(f.x());
+        stage.setY(f.y());
+        stage.setWidth(f.width());
+        stage.setHeight(f.height());
     }
 
     void toggle() {
@@ -139,82 +186,54 @@ final class MainWindow {
 
     void show() {
         IdleTrim.touch();
-        redraw();
+        if (!stage.isShowing()) place();
         stage.show();
+        Platform.runLater(this::fit);
         stage.toFront();
-        accounts.requestFocus();
+    }
+
+    /** The window with this tab in front. */
+    void show(Tab tab) {
+        tabs.getSelectionModel().select(tab);
+        show();
+    }
+
+    /** The tab a command-line name means (paid, free, lanes, clients, servers, manage), the first tab for no name, null for an unknown one. */
+    Tab tabNamed(String name) {
+        if (name == null || name.isBlank()) return paidTab;
+        return switch (name.toLowerCase()) {
+            case "paid" -> paidTab;
+            case "free" -> freeTab;
+            case "lanes" -> lanesTab;
+            case "clients" -> clientsTab;
+            case "servers" -> serversTab;
+            case "manage" -> manageTab;
+            default -> null;
+        };
+    }
+
+    void showFree() { show(freeTab); }
+
+    void showLanes() { show(lanesTab); }
+
+    void showServers() { show(serversTab); }
+
+    /** An account was added, removed or changed: poll again so the numbers follow, and redraw. */
+    void accountsChanged() {
+        if (parts.watcher != null) parts.watcher.pollNow();
+        redrawIfShowing();
     }
 
     void redrawIfShowing() {
         if (stage.isShowing()) redraw();
     }
 
-    /** Puts what the parts say now into the controls, without those controls acting on it. */
+    /** What the parts say now, into the tab in front (the others are stopped and ignore it). */
     void redraw() {
-        redrawing = true;
-        try {
-            var w = parts.watcher;
-            status.setText(statusText.get());
-            var chosen = accounts.getSelectionModel().getSelectedIndex();
-            ids.clear();
-            var rows = new ArrayList<String>();
-            bridge.usages.forEach((id, u) -> {
-                ids.add(id);
-                rows.add("%s %-12s 5h %-5s week %-5s avg %-6s free %s".formatted(id.equals(bridge.activeId) ? "●" : " ", id, fiveHour(u), week(u), avg(u), weekFree(u)));
-            });
-            accounts.getItems().setAll(rows);
-            if (chosen >= 0 && chosen < rows.size()) accounts.getSelectionModel().select(chosen);
-            modes.getToggles().forEach(t -> t.setSelected(w != null && t.getUserData() == w.mode()));
-            watch.setSelected(w != null);
-            widget.setSelected(parts.widget != null);
-            card.setDisable(parts.widget == null);
-            card.setSelected(parts.widget != null && parts.widget.taskbarOn());
-            server.setSelected(parts.server.running());
-            note.setText(parts.server.running() || parts.serverProblem == null ? "" : "The local server did not start: " + parts.serverProblem);
-            total.setText(totalText(w == null ? null : w.mode()));
-        } finally {
-            redrawing = false;
-        }
-    }
-
-    /** The Total tab: all accounts as one, and whether the watcher switches on its own. */
-    String totalText(WatchMode mode) {
-        var c = Totals.of(bridge.usages);
-        return String.join("\n",
-                "Accounts counted      5-hour " + c.fiveHourAccounts() + "     weekly " + c.weekAccounts(),
-                "",
-                "5-hour   usage " + num(c.hasFiveHour(), c.fiveHourUsage()) + "   time gone " + num(c.hasFiveHour(), c.fiveHourTime()) + "   rate " + num(c.hasFiveHour(), c.fiveHourRate()),
-                "Weekly   usage " + num(c.hasWeek(), c.weekUsage()) + "   time gone " + num(c.hasWeek(), c.weekTime()) + "   rate " + num(c.hasWeek(), c.weekRate()),
-                "",
-                "Free     5-hour " + num(c.hasFiveHour(), 100 - c.fiveHourUsage()) + "   weekly " + num(c.hasWeek(), 100 - c.weekUsage()),
-                "",
-                "Switching: " + switching(mode),
-                "",
-                "Every account counts the same. Rate is usage over time gone: 100% spends",
-                "the window exactly as it passes, above that is faster.");
-    }
-
-    static String num(boolean known, double v) { return known ? pct(v) : "--"; }
-
-    static String switching(WatchMode m) {
-        if (m == null) return "off (the account watcher is not running)";
-        return m == WatchMode.AUTO ? "auto: ccacc moves Claude Code between accounts on its own" : "off: Claude Code stays on one account";
-    }
-
-    void switchToChosen() {
-        var i = accounts.getSelectionModel().getSelectedIndex();
-        if (i < 0 || i >= ids.size()) { note.setText("Choose an account first."); return; }
-        if (parts.watcher == null) { note.setText("Turn the account watcher on to switch accounts."); return; }
-        if (ids.get(i).equals(bridge.activeId)) { note.setText(ids.get(i) + " is already the active account."); return; }
-        parts.watcher.requestSwitch(ids.get(i));
-        note.setText("Switching to " + ids.get(i) + "…");
-    }
-
-    static String modeText(WatchMode m) {
-        return switch (m) {
-            case AUTO -> "Auto";
-            case LOCKED -> "Locked (stay, still warn)";
-            case PAUSED -> "Paused (no polling)";
-        };
+        status.setText(statusText.get());
+        paid.redraw();
+        free.redraw();
+        servers.redraw();
+        lanes.redraw();
     }
 }

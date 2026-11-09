@@ -110,18 +110,18 @@ class ScreenshotsTest {
         parts.watcher = new UsageWatcher(null, null, null, null, WatchConfig.defaults(), bridge);
         parts.watcher.mode(WatchMode.AUTO);
 
-        var main = onFx(() -> new MainWindow(parts, bridge, CcaccApp.COLOR, () -> "ann  5h 46%  week 31% (avg 74%)  ·  auto"));
-        onFx(() -> { main.redraw(); main.stage.show(); return null; });
+        var main = onFx(() -> new MainWindow(parts, bridge, CcaccApp.COLOR, () -> "ann  5h 46%  week 31% (avg 74%)  ·  auto", MainWindowTest.pane(), new TrayItems(parts, bridge, () -> { })));
+        onFx(() -> { main.stage.show(); main.sync(); return null; });
         var scene = onFx(() -> main.stage.getScene());
-        save(scene.getRoot(), scene, folder.resolve("accounts.png"));
-        onFx(() -> { ((TabPane) scene.getRoot().lookup(".tab-pane")).getSelectionModel().select(1); return null; });
-        save(scene.getRoot(), scene, folder.resolve("total.png"));
+        save(scene.getRoot(), scene, folder.resolve("paid-accounts.png"));
+        onFx(() -> { main.tabs.getSelectionModel().select(main.serversTab); main.sync(); return null; });
+        save(scene.getRoot(), scene, folder.resolve("servers.png"));
         onFx(() -> { main.stage.hide(); return null; });
 
-        var manage = onFx(() -> new AccountsWindow(parts, new Accounts(manager, creds, () -> { }), CcaccApp.COLOR));
-        onFx(() -> { manage.show(); manage.list.getSelectionModel().select(2); return null; });
-        var manageScene = onFx(() -> manage.stage.getScene());
+        var manage = onFx(() -> new AccountsPane(parts, new Accounts(manager, creds, () -> { })));
+        var manageStage = onFx(() -> { var st = new javafx.stage.Stage(); st.setScene(new javafx.scene.Scene(manage, 900, 560)); manage.start(); manage.list.getSelectionModel().select(2); st.show(); return st; });
+        var manageScene = onFx(() -> manageStage.getScene());
         save(manageScene.getRoot(), manageScene, folder.resolve("manage-accounts.png"));
-        onFx(() -> { manage.stage.hide(); return null; });
+        onFx(() -> { manageStage.hide(); return null; });
     }
 }

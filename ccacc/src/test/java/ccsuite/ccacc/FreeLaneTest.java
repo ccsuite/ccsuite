@@ -36,6 +36,20 @@ class FreeLaneTest {
         return new FreeLane(gauges, () -> accounts, settings);
     }
 
+    @Test void theStatusListsEveryFreeAccountWithItsStateInTheSharedOrder(@TempDir Path dir) {
+        var all = List.of(account("IKO", 0, true, false), account("OFF", 0, false, false), account("NEW", 0, true, false), account("ALF", 0, true, false));
+        var l = lane(dir, all, new LaneSettings());
+        var reset = Instant.now().getEpochSecond() + 2 * 3600;
+        l.gauges.rows.put("IKO", new FreeGauges.Row("IKO", "i", 1.0, 0.1, "exceeded_limit", reset, Instant.now(), "m", null, 1));
+        l.gauges.rows.put("ALF", new FreeGauges.Row("ALF", "a", 0.30, 0.1, "within_limit", reset, Instant.now(), "m", null, 1));
+        var lines = l.roomLines();
+        assertEquals(4, lines.size(), "the same set as every other view: all four, none left out");
+        assertTrue(lines.get(0).startsWith("  ALF") && lines.get(0).contains("70 points left, resets at"), lines.get(0));
+        assertTrue(lines.get(1).startsWith("  IKO") && lines.get(1).contains("exhausted, resets at"), lines.get(1));
+        assertTrue(lines.get(2).startsWith("  NEW") && lines.get(2).contains("restore time not known yet") && lines.get(2).contains("added, served after the next restart"), lines.get(2));
+        assertTrue(lines.get(3).startsWith("  OFF") && lines.get(3).contains("restore time not known yet") && !lines.get(3).contains("inactive"), lines.get(3));
+    }
+
     @Test void theLaneServesFromEveryFreeAccountThatIsNotMonitorOnly(@TempDir Path dir) {
         var all = List.of(account("A", 0, true, false), account("B", 0, false, false), account("C", 0, true, true), account("D", 1, true, false), account("E", 0, true, false));
         assertEquals(List.of("A", "B", "E"), lane(dir, all, new LaneSettings()).chosen(), "active or not, but not monitor-only and not tier 1");
@@ -120,10 +134,11 @@ class FreeLaneTest {
     }
 
     @Test void aHugeNewConversationIsRefusedWithAReasonWhenNoAccountCanCarryIt(@TempDir Path dir) throws Exception {
-        var l = laneWithRoom(dir, 0.61);
-        var refusal = l.guard(conversation("where are we", 475_719));
+        var l = laneWithRoom(dir, 0.0);
+        var big = conversation("where are we", 1_000_000);
+        var refusal = l.guard(big);
         assertNotNull(refusal);
-        assertTrue(refusal.contains("too long to start on the free lane") && refusal.contains("475") && refusal.contains("Compact it first"), refusal);
+        assertTrue(refusal.contains("too long to start on the free lane") && refusal.contains(grouped(ccsuite.webproxy.RequestTokens.ofBody(big))) && refusal.contains("340,000") && refusal.contains("Compact it first"), refusal);
         assertTrue(refusal.contains("invalid_request_error"));
     }
 
@@ -224,7 +239,7 @@ class FreeLaneTest {
         assertEquals(200, c.status());
         assertEquals("new", c.cache());
         assertEquals(body.length, c.chars());
-        assertEquals(body.length / 4, c.tokens(), "characters over four");
+        assertEquals(ccsuite.webproxy.TokenEstimate.tokens(body.length), c.tokens(), "the proxy's one measured ratio, not characters over four (PRP 88)");
         assertEquals(0.40, c.before5(), 1e-9);
         assertEquals(0.55, c.after5(), 1e-9);
         assertEquals(RESETS, c.reset5After());
@@ -279,7 +294,7 @@ class FreeLaneTest {
         var now = Instant.now();
         l.estimator.observe("A", now.minusSeconds(120), 0.50, 0.1, now.getEpochSecond() + 1800, "probe");   // the last reading says 50 points are left
         l.estimator.spent("A", now.minusSeconds(60), 40);                                                   // calls since then that carried no reading
-        var refusal = l.guard(conversation("hello", 60_000));
+        var refusal = l.guard(conversation("hello", 80_000));
         assertNotNull(refusal, "the reading alone would allow it; the ledger knows 40 more points were spent");
         assertTrue(refusal.contains("the ledger predicts") && refusal.contains("10 points"), refusal);
         assertTrue(refusal.matches("(?s).*room comes back with the next window reset, in about \\d+ min.*"), refusal);
@@ -289,11 +304,10 @@ class FreeLaneTest {
         var l = ledgered(dir, List.of(account("A", 0, true, false), account("B", 0, true, false)));
         read(l, "A", 0.0);
         read(l, "B", 0.0);
-        assertNull(l.guard(conversation("resumed", 655_260)), "the 2026-11-07 case, 655,260 characters, fits a completely unloaded account (about 80 points with the room to summarise it)");
+        assertNull(l.guard(conversation("resumed", 655_260)), "655,260 characters, about 285,000 tokens, is below the safe start and fits a completely unloaded account");
         var refusal = l.guard(conversation("huge", 1_800_000));
         assertNotNull(refusal);
-        assertTrue(refusal.contains("on any free account") && refusal.contains("counting the room to summarise it"), refusal);
-        assertTrue(refusal.matches("(?s).*most the free lane can safely start is about [0-9,]+ characters \\(~[0-9,]+ tokens\\) on Sonnet 5.5, and the server itself refuses a request over 874,453 tokens.*"), refusal);
+        assertTrue(refusal.matches("(?s).*estimated input is ~[0-9,]+ tokens \\([0-9,]+ characters\\), above the safe start of 340,000 tokens\\..*"), refusal);
         assertTrue(refusal.contains("Compact it first") && refusal.contains("--model haiku"), "it says to compact, and that Haiku would fit: " + refusal);
         assertFalse(refusal.contains("room comes back"), "waiting would not help: " + refusal);
         var overContext = l.guard(conversation("enormous", 2_500_000));
@@ -321,6 +335,58 @@ class FreeLaneTest {
         assertNull(l.guard(conversation("hello", 60_000)), "A cannot, B can: allocation succeeds, no refusal");
         read(l, "B", 0.96);
         assertNotNull(l.guard(conversation("hello", 60_000)), "neither can");
+    }
+
+    // ---- PRP 84: the start guard decides on estimated input tokens against the safe start, with no summary reserve on the points
+
+    static String grouped(long n) { return String.format("%,d", n); }
+
+    @Test void aConversationOfAboutTwoHundredAndElevenThousandTokensStartsOnAnUnloadedAccount(@TempDir Path dir) throws Exception {
+        for (var rate : new double[] {0.6, 1.35}) {   // the measured rate, and the dearer one the ledger once learned (the old double count then priced this body at 131 points)
+            var settings = new LaneSettings().pointsPer10kChars(rate);
+            var accounts = List.of(account("A", 0, true, false));
+            var gauges = new FreeGauges(() -> accounts, (c, m) -> new FreeGauge.Reading(0.0, 0.1, "within_limit", RESETS, m, 1, 1), dir);
+            var l = new FreeLane(gauges, () -> accounts, settings, new FreeLedger(dir.resolve("ledger-" + rate)));
+            l.ids = List.of("A");
+            l.up = true;
+            read(l, "A", 0.0);
+            var body = conversation("where are we", 486_451);
+            assertTrue(ccsuite.webproxy.TokenEstimate.tokens(body.length) > 200_000 && ccsuite.webproxy.TokenEstimate.tokens(body.length) < 340_000);
+            assertNull(l.guard(body), "about 211,000 tokens is below the safe start of 340,000: allowed (rate " + rate + ")");
+        }
+    }
+
+    @Test void aConversationOfEightHundredThousandTokensIsRefusedWithTheTokenFiguresInTheMessage(@TempDir Path dir) throws Exception {
+        var l = ledgered(dir, List.of(account("A", 0, true, false)));
+        read(l, "A", 0.0);
+        var body = conversation("huge", 1_840_000);
+        var refusal = l.guard(body);
+        assertNotNull(refusal);
+        var tokens = (long) ccsuite.webproxy.RequestTokens.ofBody(body);
+        assertTrue(refusal.contains("~" + grouped(tokens) + " tokens"), "the estimate in tokens: " + refusal);
+        assertTrue(refusal.contains(grouped(340_000) + " tokens"), "and the limit it was compared with: " + refusal);
+        assertTrue(refusal.contains("Compact it first") && refusal.contains("--model haiku"), "compact, and Haiku fits: " + refusal);
+        assertFalse(refusal.contains("room comes back") || refusal.contains("counting the room to summarise"), refusal);
+    }
+
+    @Test void theGuardAndTheEstimateUseTheOneRatioOfTheProxy(@TempDir Path dir) throws Exception {
+        var l = ledgered(dir, List.of(account("A", 0, true, false)));
+        for (var chars : new long[] {1, 2_300, 486_451, 1_840_000})
+            assertEquals(ccsuite.webproxy.TokenEstimate.tokens(chars), l.estimator.claudeCodeTokens(chars), "the same figure as the proxy reports for " + chars + " characters");
+        assertTrue(java.util.Arrays.stream(LaneSettings.class.getDeclaredFields()).noneMatch(f -> f.getName().toLowerCase().contains("charspertoken")), "no second copy of the ratio in the settings");
+        read(l, "A", 0.0);
+        var body = conversation("huge", 1_840_000);
+        assertTrue(l.guard(body).contains("~" + grouped(ccsuite.webproxy.RequestTokens.ofBody(body)) + " tokens"), "the refusal reports the proxy's own content estimate");
+    }
+
+    @Test void aContinuedConversationIsNeverRefusedWhateverItsSize(@TempDir Path dir) throws Exception {
+        var l = ledgered(dir, List.of(account("A", 0, true, false)));
+        read(l, "A", 0.0);
+        var first = conversation("my long session", 300_000);
+        assertNull(l.guard(first));
+        l.remember(first);
+        assertNull(l.guard(conversation("my long session", 1_840_000)), "the lane carries it: only what is new is sent");
+        assertNotNull(l.guard(conversation("another session", 1_840_000)), "a new one of that size is refused");
     }
 
     @Test void theCallsInFlightAreListedWhileTheyRunAndAHoldTurnsNewOnesAway(@TempDir Path dir) throws Exception {

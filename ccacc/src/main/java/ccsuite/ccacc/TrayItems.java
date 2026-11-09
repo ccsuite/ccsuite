@@ -19,10 +19,10 @@ final class TrayItems {
     final Runnable quit;
     /** Opens the simple window; set by the app once the window exists. */
     Runnable openWindow = () -> {};
-    /** Opens the free accounts window; set by the app. */
-    Runnable openFree = () -> {};
-    /** Whether any free account is saved; the "Free accounts…" row is left out when none is. Set by the app. */
+    /** Whether any free account is saved; the free usage window row is left out when none is. Set by the app. */
     java.util.function.BooleanSupplier hasFree = () -> true;
+    /** Shows or hides the floating usage windows (paid, free), which are never shown by themselves; set by the app. */
+    Runnable openPaidDialog = () -> {}, openFreeDialog = () -> {};
     /** Opens the lanes window; set by the app. */
     Runnable openLanes = () -> {};
     /** Opens the window with the account switches, the watcher mode, the parts and the servers; set by the app. */
@@ -44,7 +44,8 @@ final class TrayItems {
         IdleTrim.touch();
         var l = new ArrayList<MenuItem>();
         l.add(item("Open ccacc window", () -> openWindow.run()));
-        if (hasFree.getAsBoolean()) l.add(item("Free accounts…", () -> openFree.run()));
+        l.add(item("Usage window (paid accounts)", () -> openPaidDialog.run()));
+        if (hasFree.getAsBoolean()) l.add(item("Usage window (free accounts)", () -> openFreeDialog.run()));
         l.add(item("Lanes…", () -> openLanes.run()));
         l.add(new SeparatorMenuItem());
         var w = parts.watcher;
@@ -55,26 +56,10 @@ final class TrayItems {
             l.addAll(modeItems());   // Auto, Locked, Paused with the current one marked, and Refresh now: an important setting, so flat in the menu
             l.add(new SeparatorMenuItem());
         }
-        l.add(item("Accounts, parts and servers…", () -> openParts.run()));
+        l.add(item("Servers and accounts…", () -> openParts.run()));
         l.add(new SeparatorMenuItem());
         l.add(item("Open ccacc settings", () -> open(parts.store.file().toFile())));
         l.add(item("Quit ccacc", quit));
-        return l;
-    }
-
-    // ---- the groups behind the window "Accounts, parts and servers"
-
-    /** One row per other account: switch to it. */
-    List<MenuItem> switchItems() {
-        var l = new ArrayList<MenuItem>();
-        var w = parts.watcher;
-        if (w == null) return l;
-        var target = bridge.pendingTarget;
-        if (target != null) l.add(item("⚠ Switch to " + target + " now (recommended)", () -> w.requestSwitch(target)));
-        bridge.usages.forEach((id, u) -> {
-            if (!id.equals(bridge.activeId))
-                l.add(item("Switch to " + id + "   " + weekFree(u) + " weekly free, avg " + avg(u), () -> w.requestSwitch(id)));
-        });
         return l;
     }
 
@@ -88,31 +73,6 @@ final class TrayItems {
         l.add(item(mark(w.mode() == WatchMode.PAUSED) + " Paused: do not poll at all", () -> parts.mode(WatchMode.PAUSED)));
         l.add(item("Refresh now", w::pollNow));
         return l;
-    }
-
-    /** The parts and servers, each a switch. */
-    List<MenuItem> partItems() {
-        var l = new ArrayList<MenuItem>();
-        var w = parts.watcher;
-        l.add(item(onOff(w != null) + " Account watcher", () -> parts.watch(w == null)));
-        l.add(item(onOff(parts.widget != null) + " Usage widget", () -> parts.widget(parts.widget == null)));
-        var widget = parts.widget;
-        if (widget != null) {
-            l.add(item("      " + onOff(widget.taskbarOn()) + " Card in the taskbar", () -> widget.taskbar(!widget.taskbarOn())));
-            l.add(item("      " + onOff(widget.floatingOn()) + " Floating window", () -> widget.floating(!widget.floatingOn())));
-        }
-        l.add(item(onOff(parts.server.running()) + " Local server" + serverNote(), () -> parts.server(!parts.server.running())));
-        lanesItems(l);
-        l.add(item(onOff(parts.gate.running()) + " Gate" + gateNote(), () -> parts.gate(!parts.gate.running())));
-        l.add(item(onOff(parts.relay != null) + " Relay" + relayNote(), () -> parts.relay(parts.relay == null)));
-        return l;
-    }
-    /** The lanes: one switch, and the window. */
-    void lanesItems(List<MenuItem> l) {
-        var lanes = parts.lanes;
-        if (lanes == null) return;
-        l.add(item(onOff(lanes.running()) + " Lanes" + (lanes.problem == null ? "" : "  (" + lanes.problem + ")"), () -> lanes.enable(!lanes.running())));
-        l.add(item("      Lanes window…", () -> openLanes.run()));
     }
 
     String gateNote() {

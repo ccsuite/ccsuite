@@ -29,6 +29,9 @@ final class LaneHost {
     synchronized void start() {
         if (service.running()) return;
         var l = new FreeLane(gauges, accounts, lanes(), FreeLedger.standard());
+        l.notes = new CloseNotes(lanes(), Path.of(System.getProperty("user.home"), "ccsuite", "ccacc", "close-decisions.log"));   // PRP 86: warn and close lines, and the decision log; active at the next start of the lanes
+        l.statusDir = Path.of(System.getProperty("user.home"), "ccsuite", "ccacc", "session-status");   // PRP 86 R4/R7: read by ccstatus
+        if (lanes().bodyLog()) l.bodyLog = new BodyLog(Path.of(System.getProperty("user.home"), "ccsuite", "ccacc", "bodies"), lanes().bodyLogDays());   // PRP 87: off unless switched on; outside any repository
         l.start();
         free = l;
         service.start(lanes().specs(), l.available() ? l : null, 60);
@@ -67,6 +70,23 @@ final class LaneHost {
 
     void hold(boolean on) { var f = free; if (f != null) f.hold(on); }
 
+    /** The short state, for the Lanes tab: on or off, the two ports, how the free lane stands and the paid pin. The accounts' usage is in the Paid and Free tabs, not repeated here. */
+    List<String> summary() {
+        var out = new ArrayList<String>();
+        var l = lanes();
+        out.add("lanes: " + (running() ? "on" : "off") + (problem == null ? "" : "   ! " + problem));
+        out.add(String.format("  pclaude   127.0.0.1:%-5d the paid accounts, every model", l.pclaudePort()));
+        out.add(String.format("  fclaude   127.0.0.1:%-5d the free accounts, haiku and sonnet", l.fclaudePort()));
+        var f = free;
+        if (f == null) out.add("free lane: not running" + (running() ? "" : " (lanes are off)"));
+        else out.add("free lane: " + (f.available() ? f.ids.size() + " accounts, " + f.inFlight() + " in flight, room " + (f.hasHeadroom() ? "yes" : "no") + ", chat reuse " + l.chatReuseMode() + (f.hold ? ", HELD (new requests get 503)" : "")
+                : "not started: " + f.problem));
+        var paid = service.paid();
+        if (l.paidPinOrNull() != null) out.add("paid pin: " + l.paidPinOrNull() + "  (the paid lane uses only this account and never moves to another)");
+        if (paid != null) out.add("paid lane: room " + (paid.hasHeadroom() ? "yes" : "no"));
+        return out;
+    }
+
     /** The state as text, for the command and the window. */
     List<String> report() {
         var out = new ArrayList<String>();
@@ -78,6 +98,7 @@ final class LaneHost {
         if (f == null) out.add("free lane: not running" + (running() ? "" : " (lanes are off)"));
         else out.add("free lane: " + (f.available() ? f.ids.size() + " accounts " + f.ids + ", " + f.inFlight() + " in flight, room " + (f.hasHeadroom() ? "yes" : "no") + ", chat reuse " + l.chatReuseMode() + (f.hold ? ", HELD (new requests get 503)" : "")
                 : "not started: " + f.problem));
+        if (f != null && f.available()) out.add("  innerFreePort=" + f.port + "  (the free proxy inside ccacc; it changes at every lane start)   costModel=" + l.costModel());   // PRP 88: for the calibration runner, so it never scans ports
         if (f != null && f.available()) { out.add(f.estimator.limitText());
             out.add("free accounts, room as the ledger predicts (corrected by each gauge reading; points of the five-hour window):"); out.addAll(f.roomLines()); }
         var paid = service.paid();

@@ -97,6 +97,17 @@ public class UsageWidgetController {
     @FXML
     private Label cycleEndTime;
 
+    private Palette palette = Palette.PAID;
+
+    /** The colours of this row's window (the free window has its own); set before the first update. */
+    public void setPalette(Palette p) { this.palette = p == null ? Palette.PAID : p; }
+
+    @Setter
+    private Runnable onNameClick;
+
+    @Setter
+    private Runnable onTypeClick;
+
     // Callback handlers (set by parent)
     @Setter
     private Runnable onRefresh;
@@ -129,6 +140,14 @@ public class UsageWidgetController {
             if (pingButton != null) pingButton.setText("P");
             if (refreshButton != null) refreshButton.setText("R");
         }
+
+        if (accName != null) accName.setOnMouseClicked(event -> { var h = onNameClick; if (h != null) h.run(); });
+        if (accType != null) accType.setOnMouseClicked(event -> {
+            var h = onTypeClick;
+            if (h != null) new Thread(() -> {
+                try { h.run(); } catch (Exception e) { System.err.println("Error in the tier-mark callback: " + e.getMessage()); }
+            }).start();
+        });
 
         // Setup click handlers for button labels - ensure UI runs on JavaFX thread
         if (refreshButton != null) {
@@ -195,7 +214,7 @@ public class UsageWidgetController {
 
         // Update background color based on active status
         if (rootContainer != null) {
-            var bgColor = isActive ? "#2A2A2A" : "#3A2A2A"; // Slightly lighter for inactive
+            var bgColor = isActive ? palette.bgActive() : palette.bgInactive();
             rootContainer.setStyle("-fx-background-color: " + bgColor + ";");
         }
 
@@ -220,6 +239,7 @@ public class UsageWidgetController {
         var maxWidth = 40.0;
         usageProgress.setWidth((usagePercent / 100.0) * maxWidth);
         timeProgress.setWidth((timePercent / 100.0) * maxWidth);
+        if (palette.timeBar() != null) timeProgress.setFill(javafx.scene.paint.Color.web(palette.timeBar()));
 
         // Update progress bar colors based on usage percentage
         var usageColor = getProgressColorFromPercent(usagePercent);

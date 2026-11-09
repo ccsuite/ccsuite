@@ -69,6 +69,13 @@ public class UsageWidget extends Application {
     // Set by a host app that owns the tray and shares one usage source across its parts.
     private OAuthUsageSource sharedSource;
     private boolean hosted;
+    // A feed window is the same window with the pages pushed in by its owner instead of fetched here (the free accounts' window): its own title, colours and settings file.
+    private boolean feed;
+    private String windowTitle = "CCUsage";
+    private Palette palette = Palette.PAID;
+    private java.nio.file.Path feedSettings;
+    private java.util.function.Function<AccountUsage, String> feedRefresh;
+    private AccountUsage feedAll;
     // Who Claude Code is logged into right now (the host's live detection); the file's claudecodeactive flag
     // is only as fresh as the last tool that wrote it, so when this is set it decides.
     private java.util.function.Supplier<String> liveActiveId;
@@ -109,7 +116,7 @@ public class UsageWidget extends Application {
     @Override
     public void start(Stage primaryStage) {
         this.primaryStage = primaryStage;
-        settingsManager = new SettingsManager();
+        settingsManager = feed ? new SettingsManager(feedSettings) : new SettingsManager();
 
         // Load UI settings
         try {
@@ -121,6 +128,7 @@ public class UsageWidget extends Application {
             return;
         }
 
+        if (!feed) {
         // Load shared credentials
         credentialsManager = new CredentialsManager();
         try {
@@ -132,7 +140,7 @@ public class UsageWidget extends Application {
         }
 
         // Validate credentials
-        if (credentials.getTrackUsageCredentials().isEmpty()) {
+        if (credentials.getPaidUsageCredentials().isEmpty()) {
             showError("No credentials with trackUsage=true found");
             return;
         }
@@ -142,6 +150,7 @@ public class UsageWidget extends Application {
 
         // Fallback client (see tryInferenceProbeFallback / tryAutoProbeFallback below).
         probeSource = sharedSource != null ? sharedSource : OAuthUsageSource.standard();
+        }
         // Create UI - minimal padding per PRP requirements
         contentBox = new VBox(0);
         contentBox.setPadding(new Insets(1, 1, 3, 1)); // Extra padding at bottom for resize area
@@ -179,7 +188,7 @@ public class UsageWidget extends Application {
         // Configure stage
         primaryStage.initStyle(StageStyle.TRANSPARENT);
         primaryStage.setAlwaysOnTop(true);
-        primaryStage.setTitle("CCAPI Usage Tracker");
+        primaryStage.setTitle(feed ? windowTitle : "CCAPI Usage Tracker");
         primaryStage.getIcons().setAll(UsageAppIcon.windowIcons());
         primaryStage.setScene(scene);
         primaryStage.setMinHeight(currentMinHeight());
@@ -218,11 +227,12 @@ public class UsageWidget extends Application {
 
         // Show window first (before any network calls). It is optional: with floatingWindow=false the
         // taskbar card is the display, and the tray menu still opens this window on demand.
-        if (uiSettings.floatingWindow()) {
+        if (uiSettings.floatingWindow() && !hosted) {   // a host (ccacc) shows it only when asked: its tray, its window, or the taskbar slot being absent
             primaryStage.show();
         }
 
         // Initial update - run asynchronously to avoid blocking UI thread
+        if (feed) return;   // a feed window fetches nothing: its owner pushes the pages (see feed)
         refreshExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
             var t = new Thread(r, "usage-refresh");
             t.setDaemon(true);
@@ -262,6 +272,8 @@ public class UsageWidget extends Application {
         taskbarCard = new ccsuite.usagetracker.taskbar.TaskbarCard();
         taskbarCard.glow(uiSettings.glow());
         if (modeLabel != null) taskbarCard.modeLabel(modeLabel);
+        taskbarCard.onRefresh(this::rereadFromCard);
+        taskbarCard.onActivate(page -> { var h = activateHandler; if (h != null) Platform.runLater(() -> h.accept(page.credential().id())); });
         taskbarCard.start();
         pushTaskbar();
         if (!primaryStage.isShowing()) {
@@ -276,6 +288,68 @@ public class UsageWidget extends Application {
                 }
             });
             wait.play();
+        }
+    }
+
+    /**
+     * A window that shows pages its owner pushes ({@link #feed(List, AccountUsage)}) instead of fetching them: the same rows, ALL row, hover and chrome, in the colours of
+     * {@code palette}. {@code refresh} reads one page's account again (ALL: every account) and returns the failure in words or null; it runs off the FX thread.
+     * Not shown by itself; its position is kept in {@code settingsFile}.
+     */
+    public static UsageWidget feed(String title, Palette palette, java.nio.file.Path settingsFile, java.util.function.Function<AccountUsage, String> refresh) {
+        var w = new UsageWidget();
+        w.feed = true; w.hosted = true;
+        w.windowTitle = title; w.palette = palette; w.feedSettings = settingsFile; w.feedRefresh = refresh;
+        return w;
+    }
+
+    /** The owner's pages and their ALL page (null for none): the rows are built when the set of accounts changes and updated in place otherwise. Any thread. */
+    public void feed(List<AccountUsage> pages, AccountUsage all) {
+        Platform.runLater(() -> {
+            if (!feed || primaryStage == null || accountsContainer == null) return;
+            feedAll = all;
+            var ids = pages.stream().map(p -> p.credential().id()).toList();
+            if (!ids.equals(lastRowIds)) { displayUsageData(pages); lastRowIds = ids; }
+            for (var p : pages) {
+                latestAccountUsages.put(p.credential().id(), p);
+                var controller = rowControllers.get(p.credential().id());
+                if (controller != null) controller.updateUsageData(p, uiSettings.showTime());
+                var tooltip = rowTooltips.get(p.credential().id());
+                if (tooltip != null) tooltip.setText(buildTooltipText(p));
+            }
+            showAll(all);
+        });
+    }
+
+    /** A row's tier mark or refresh button, or the title bar's: read that account again; a failure is shown, success is silent. Off the FX thread. */
+    private void rereadRow(AccountUsage page) {
+        var failure = feed ? (feedRefresh == null ? null : feedRefresh.apply(page)) : rereadFromCard(page);
+        if (failure != null) ReadFailed.show(page.credential().id(), failure);
+    }
+
+    private java.util.function.Consumer<String> activateHandler;
+
+    /** What a press on an account's name does (the host confirms with the user, then switches); without it the name is not a button. */
+    public UsageWidget onActivate(java.util.function.Consumer<String> handler) { this.activateHandler = handler; return this; }
+
+    /** The tier mark of the card was pressed: read that account again now (every account for ALL). Returns the failure in words, or null. Off the FX thread. */
+    private String rereadFromCard(AccountUsage page) {
+        var id = page.credential().id();
+        if ("ALL".equals(id)) { safeUpdate(); return null; }
+        var live = credentials == null ? null : credentials.getById(id);
+        var c = live != null ? live : page.credential();
+        try {
+            var data = c.key() == null || c.key().isBlank() ? null
+                : apiClient.fetchUsageWithRetry(c, uiSettings.usageMaxRetries(), uiSettings.usageRetryBaseMs(), uiSettings.usageRetryMaxMs());
+            if (data == null) data = tryInferenceProbeFallback(c);
+            if (data == null) return "Nothing could be read for " + id + " just now (it has no session key, and its login was read a moment ago).";
+            applyFetchedUsage(c, data, rowControllers.get(id));
+            return null;
+        } catch (Exception e) {
+            var fallback = tryInferenceProbeFallback(c);
+            if (fallback == null) return String.valueOf(e.getMessage());
+            applyFetchedUsage(c, fallback, rowControllers.get(id));
+            return null;
         }
     }
 
@@ -430,7 +504,7 @@ public class UsageWidget extends Application {
 
     public void taskbar(boolean on) { if (uiSettings != null) setTaskbarMode(on); }
 
-    public boolean floatingOn() { return uiSettings != null && uiSettings.floatingWindow(); }
+    public boolean floatingOn() { return primaryStage != null && primaryStage.isShowing(); }
 
     public void floating(boolean on) { if (uiSettings != null) setFloatingMode(on); }
 
@@ -463,7 +537,7 @@ public class UsageWidget extends Application {
     private void showLoadingPlaceholder() {
         accountsContainer.getChildren().clear();
         var loadingLabel = new Label("Loading...");
-        loadingLabel.setStyle("-fx-text-fill: #00BFFF; -fx-font-size: 9px; -fx-padding: 10;");
+        loadingLabel.setStyle("-fx-text-fill: " + palette.accent() + "; -fx-font-size: 9px; -fx-padding: 10;");
         accountsContainer.getChildren().add(loadingLabel);
         installChrome();
     }
@@ -480,7 +554,7 @@ public class UsageWidget extends Application {
         var hideBtn = barButton("−", "#404040", 10);
         hideBtn.setOnAction(e -> hideToTray());
         var closeBtn = barButton("×", "#ff4444", 12);
-        closeBtn.setOnAction(e -> exitApp());
+        closeBtn.setOnAction(e -> { if (hosted) hideToTray(); else exitApp(); });   // a host owns the process: its window only hides
 
         Region bar;
         if (vertical) {
@@ -511,8 +585,8 @@ public class UsageWidget extends Application {
             leftBar.setStyle("-fx-background-color: rgba(45, 45, 45, 0.6);");
             bar = leftBar;
         } else {
-            var title = new Label("CCUsage");
-            title.setStyle("-fx-text-fill: #00BFFF; -fx-font-size: 10px; -fx-font-weight: bold;");
+            var title = new Label(windowTitle);
+            title.setStyle("-fx-text-fill: " + palette.accent() + "; -fx-font-size: 10px; -fx-font-weight: bold;");
             var spacer = new Region();
             HBox.setHgrow(spacer, Priority.ALWAYS);
             var h = new HBox(3, title, spacer, refreshBtn, hideBtn, closeBtn);
@@ -600,6 +674,13 @@ public class UsageWidget extends Application {
      * background thread, just like startup. The button is disabled until the sweep finishes.
      */
     private void triggerFullRefresh(Button refreshBtn) {
+        if (feed) {
+            refreshBtn.setDisable(true);
+            Thread.ofPlatform().daemon().name("feed-reread").start(() -> {
+                try { rereadRow(allPage(List.of())); } finally { Platform.runLater(() -> refreshBtn.setDisable(false)); }
+            });
+            return;
+        }
         if (refreshExecutor == null) return;
         refreshBtn.setDisable(true);
         refreshExecutor.submit(() -> {
@@ -671,12 +752,14 @@ public class UsageWidget extends Application {
 
         latestAccountUsages.put(credential.id(), accountUsage);
         pushTaskbar();
+        var all = allNow();
         Platform.runLater(() -> {
-            controller.updateUsageData(accountUsage, uiSettings.showTime());
+            if (controller != null) controller.updateUsageData(accountUsage, uiSettings.showTime());
             var tooltip = rowTooltips.get(credential.id());
             if (tooltip != null) {
                 tooltip.setText(buildTooltipText(accountUsage));
             }
+            showAll(all);
         });
     }
 
@@ -754,7 +837,7 @@ public class UsageWidget extends Application {
     private void reloadCredentialsBestEffort() {
         try {
             var fresh = credentialsManager.load();
-            if (fresh != null && !fresh.getTrackUsageCredentials().isEmpty()) {
+            if (fresh != null && !fresh.getPaidUsageCredentials().isEmpty()) {
                 credentials = fresh;
                 markLiveActive();
             }
@@ -815,7 +898,7 @@ public class UsageWidget extends Application {
         // a new claudecodeactive account) is picked up on the next cycle without a restart.
         reloadCredentialsBestEffort();
 
-        var creds = credentials.getTrackUsageCredentialsOrdered();
+        var creds = credentials.getPaidUsageCredentialsOrdered();
         if (creds.isEmpty()) {
             System.err.println("❌ No credentials with trackUsage=true found");
             Platform.runLater(() -> showError("No credentials with trackUsage=true found"));
@@ -826,31 +909,49 @@ public class UsageWidget extends Application {
         // refresh the rows stay put and we just update values in place (no clear/flicker).
         var ids = creds.stream().map(CCAPICredential::id).toList();
         if (!ids.equals(lastRowIds)) {
-            // Show every account immediately in a placeholder (N/A) state so the window is
-            // sized correctly up front; real data streams in below as each fetch completes.
-            var placeholders = creds.stream().map(c -> new AccountUsage(c, null)).toList();
+            // Show every account at once from what is already known (this run's last reading, else the watcher's log), never as a blank:
+            // reading an account is a real request, and the window has no need to wait for one to draw. Fresh data replaces it below.
+            var placeholders = creds.stream().map(this::lastKnownOrBlank).toList();
+            placeholders.forEach(p -> { if (p.usageData() != null) latestAccountUsages.putIfAbsent(p.credential().id(), p); });
+            pushTaskbar();
             Platform.runLater(() -> displayUsageData(placeholders));
             lastRowIds = ids;
         }
 
-        // Fetch accounts one-at-a-time, spaced out, so a startup burst never trips the
-        // server's rate-limit/blacklist. Each row updates the moment its data arrives.
+        // Fetch only the accounts whose reading is not fresh, one at a time and spaced out, so neither a start nor the minute-by-minute sweep sends a burst of
+        // requests (a burst can answer HTTP 500). Each row updates the moment its data arrives; a refresh the user asks for is never held back.
         var spacingMs = uiSettings.usageFetchSpacingMs();
-        System.out.println("📊 Refreshing " + creds.size() + " account(s) (spacing=" + spacingMs + "ms)");
-        for (int i = 0; i < creds.size(); i++) {
+        var due = creds.stream().filter(c -> !fresh(c)).toList();
+        System.out.println("📊 Refreshing " + due.size() + " of " + creds.size() + " account(s) (the others are fresh; spacing=" + spacingMs + "ms)");
+        for (int i = 0; i < due.size(); i++) {
             if (i > 0 && spacingMs > 0) sleepQuietly(spacingMs);
-            fetchAndUpdate(creds.get(i));
+            fetchAndUpdate(due.get(i));
         }
+    }
+
+    static final long ACTIVE_FRESH_MS = 2 * 60_000L, OTHER_FRESH_MS = 5 * 60_000L;
+    private final java.util.Map<String, Long> lastAttempt = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** The account was tried, or its reading made, within the last two minutes (Claude Code's account) or five (any other): no new request for it yet. */
+    private boolean fresh(CCAPICredential c) {
+        var gate = c.claudecodeactive() ? ACTIVE_FRESH_MS : OTHER_FRESH_MS;
+        var now = System.currentTimeMillis();
+        var tried = lastAttempt.get(c.id());
+        if (tried != null && now - tried < gate) return true;
+        var last = latestAccountUsages.get(c.id());
+        return last != null && last.usageData() != null && last.fetchedAt() != null && now - last.fetchedAt().toInstant().toEpochMilli() < gate;
     }
 
     /**
      * Fetch one account (with backoff retry) and push the result to its row in place.
      */
     private void fetchAndUpdate(CCAPICredential credential) {
+        lastAttempt.put(credential.id(), System.currentTimeMillis());
         var accountUsage = fetchAccountUsage(credential);
         latestAccountUsages.put(credential.id(), accountUsage);
         pushTaskbar();
         logCoolDownInfo(accountUsage);
+        var all = allNow();
         Platform.runLater(() -> {
             var controller = rowControllers.get(credential.id());
             if (controller != null) {
@@ -860,6 +961,7 @@ public class UsageWidget extends Application {
             if (tooltip != null) {
                 tooltip.setText(buildTooltipText(accountUsage));
             }
+            showAll(all);
         });
     }
 
@@ -893,6 +995,18 @@ public class UsageWidget extends Application {
         }
     }
 
+    private volatile java.util.Map<String, ccsuite.usagetracker.model.LastReadings.Reading> logged = java.util.Map.of();
+    private volatile long loggedAt;
+
+    /** The last reading of the account in the watcher's log (re-read every five minutes at most): an account that answers nothing is not dead, its log line holds when it comes back. */
+    private ccsuite.usagetracker.model.LastReadings.Reading loggedReading(String id) {
+        if (System.currentTimeMillis() - loggedAt > 5 * 60_000L) {
+            logged = ccsuite.usagetracker.model.LastReadings.load(ccsuite.usagetracker.model.LastReadings.standard(), 3);
+            loggedAt = System.currentTimeMillis();
+        }
+        return logged.get(id);
+    }
+
     /**
      * Last successfully-fetched data for this account, or a blank AccountUsage if nothing
      * has ever been fetched. Used on fetch failure so a transient error — or an account whose
@@ -900,7 +1014,9 @@ public class UsageWidget extends Application {
      */
     private AccountUsage lastKnownOrBlank(CCAPICredential credential) {
         var previous = latestAccountUsages.get(credential.id());
-        return (previous != null && previous.usageData() != null) ? previous : new AccountUsage(credential, null);
+        if (previous != null && previous.usageData() != null) return previous;
+        var line = loggedReading(credential.id());
+        return line != null ? ccsuite.usagetracker.model.LastReadings.page(credential, line, java.time.Instant.now()) : new AccountUsage(credential, null);
     }
 
     private static void sleepQuietly(long ms) {
@@ -932,13 +1048,18 @@ public class UsageWidget extends Application {
                 accountsContainer.getChildren().add(separator);
             }
         }
+        var withAll = accountUsages.size() >= 2;
+        if (withAll) {   // all accounts as one more row, the same as the card's ALL page
+            accountsContainer.getChildren().add(createSeparator());
+            accountsContainer.getChildren().add(createAllRow(allPage(accountUsages)));
+        }
 
         // Only adjust window height if:
         // 1. First time displaying (lastAccountCount == -1), OR
         // 2. Account count has changed, AND
         // 3. User has not manually resized the window
         if (!userManuallyResized && (lastAccountCount == -1 || lastAccountCount != accountUsages.size())) {
-            var visibleRows = Math.min(accountUsages.size(), 5);
+            var visibleRows = Math.min(accountUsages.size() + (withAll ? 1 : 0), 6);
             var newHeight = TITLE_BAR_HEIGHT + (visibleRows * ROW_HEIGHT) + (visibleRows - 1) * 2 + 10; // +2 per separator
             newHeight = Math.max(currentMinHeight(), Math.min(MAX_HEIGHT, newHeight));
 
@@ -951,6 +1072,36 @@ public class UsageWidget extends Application {
         }
     }
 
+    /** The ALL page of the card (the averages of every account), or an empty ALL while there is nothing to average yet. */
+    private AccountUsage allPage(List<AccountUsage> list) {
+        var page = feed ? feedAll : ccsuite.usagetracker.taskbar.AllPage.page(ccsuite.usagetracker.taskbar.AllPage.total(list), list.size());
+        return page != null ? page : new AccountUsage(new CCAPICredential().id("ALL").name("All accounts").active(true).tier(list.size()), null);
+    }
+
+    /** The ALL row: refreshing it sweeps every account. */
+    private HBox createAllRow(AccountUsage all) {
+        var row = createAccountRow(all);
+        var controller = rowControllers.get("ALL");
+        if (controller != null) controller.setOnRefresh(feed ? () -> rereadRow(all) : () -> { if (refreshExecutor != null) refreshExecutor.submit(this::safeUpdate); });
+        return row;
+    }
+
+    /** The ALL page as of now, from the accounts read so far; null with fewer than two accounts shown. */
+    private AccountUsage allNow() {
+        var ids = lastRowIds;
+        if (ids == null || ids.size() < 2) return null;
+        return allPage(ids.stream().map(latestAccountUsages::get).filter(java.util.Objects::nonNull).toList());
+    }
+
+    /** FX thread: puts the ALL page in its row and its hover. */
+    private void showAll(AccountUsage all) {
+        if (all == null) return;
+        var controller = rowControllers.get("ALL");
+        if (controller != null) controller.updateUsageData(all, uiSettings.showTime());
+        var tooltip = rowTooltips.get("ALL");
+        if (tooltip != null) tooltip.setText(buildTooltipText(all));
+    }
+
     /**
      * Create a thin colored separator line between account rows
      */
@@ -959,7 +1110,7 @@ public class UsageWidget extends Application {
         separator.setPrefHeight(2);
         separator.setMinHeight(2);
         separator.setMaxHeight(2);
-        separator.setStyle("-fx-background-color: linear-gradient(to right, transparent, #00BFFF, transparent);");
+        separator.setStyle("-fx-background-color: linear-gradient(to right, transparent, " + palette.accent() + ", transparent);");
         return separator;
     }
 
@@ -980,6 +1131,7 @@ public class UsageWidget extends Application {
 
             // Set root container for background color changes
             controller.setRootContainer(row);
+            controller.setPalette(palette);
 
             // Register controller so the periodic sweep can update this row in place
             rowControllers.put(accountUsage.credential().id(), controller);
@@ -1010,6 +1162,9 @@ public class UsageWidget extends Application {
                 }
             });
 
+            if (feed) controller.setOnRefresh(() -> rereadRow(accountUsage));
+            controller.setOnTypeClick(() -> rereadRow(accountUsage));
+            controller.setOnNameClick(() -> { var h = activateHandler; var id = accountUsage.credential().id(); if (h != null && !feed && !"ALL".equals(id)) h.accept(id); });
             controller.setPingButtonVisible(false);
 
             // Update UI with data
@@ -1136,7 +1291,7 @@ public class UsageWidget extends Application {
         var tooltip = new Tooltip();
         tooltip.setShowDelay(Duration.millis(1000));
         tooltip.setHideDelay(Duration.millis(100));
-        tooltip.setStyle("-fx-font-size: 10px; -fx-background-color: rgba(40, 40, 40, 0.95);");
+        tooltip.setStyle(UsageDetails.POPUP_STYLE);
         tooltip.setText(buildTooltipText(accountUsage));
         // Register so fetchAndUpdate can push fresh text eagerly on every data refresh
         rowTooltips.put(accountUsage.credential().id(), tooltip);
@@ -1157,113 +1312,7 @@ public class UsageWidget extends Application {
     }
 
     private String buildTooltipText(AccountUsage accountUsage) {
-        var sb = new StringBuilder();
-        sb.append("Account: ").append(accountUsage.credential().id()).append("\n");
-        sb.append("Name: ").append(accountUsage.credential().name()).append("\n");
-        sb.append("Email: ").append(accountUsage.credential().email()).append("\n");
-        sb.append("\n");
-        sb.append("5-Hour Window:\n");
-        sb.append("  Usage: ").append(String.format("%.1f%%", accountUsage.getFiveHourUsagePercent())).append("\n");
-        sb.append("  Time Elapsed: ").append(String.format("%.1f%%", accountUsage.getFiveHourTimeElapsedPercent())).append("\n");
-        sb.append("  Utilization Rate: ").append(String.format("%.1f%%", accountUsage.getUsageToTimeRatio() * 100.0)).append("\n");
-        sb.append("  Resets In: ").append(accountUsage.getTimeUntilReset()).append("\n");
-
-        sb.append("  Utilization Rate: ").append(String.format("%.1f%%", accountUsage.getUsageToTimeRatio() * 100.0)).append("\n");
-
-        var usageData = accountUsage.usageData();
-        var fiveHrReset = usageData != null && usageData.fiveHour() != null ? usageData.fiveHour().resetsAt() : null;
-        sb.append("  Resets: ").append(formatExactResetInfo(fiveHrReset)).append("\n");
-
-        if (usageData != null) {
-            if (usageData.sevenDay() != null) {
-                var sevenDay = usageData.sevenDay();
-                sb.append("\n");
-                sb.append("7-Day Window:\n");
-                sb.append("  Usage: ").append(String.format("%.1f%%", ((float) sevenDay.utilization()))).append("\n");
-                var timeElapsed = calculateTimeElapsedPercent(sevenDay.resetsAt(), 7 * 24 * 60 * 60);
-                sb.append("  Time Elapsed: ").append(String.format("%.1f%%", timeElapsed)).append("\n");
-                var utilizationRate = timeElapsed > 0 ? (sevenDay.utilization() / timeElapsed) * 100.0 : 0.0;
-                sb.append("  Utilization Rate: ").append(String.format("%.1f%%", utilizationRate)).append("\n");
-                if (sevenDay.resetsAt() != null) {
-                    sb.append("  Resets: ").append(formatExactResetInfo(sevenDay.resetsAt())).append("\n");
-                }
-                var coolDown = accountUsage.getWeeklyCoolDownFormatted();
-                if (coolDown != null) {
-                    sb.append("  Cool down: ~").append(coolDown).append(" idle → rate ≤100%\n");
-                }
-            }
-            if (usageData.sevenDayOpus() != null) {
-                var opus = usageData.sevenDayOpus();
-                sb.append("\n");
-                sb.append("7-Day Opus:\n");
-                sb.append("  Usage: ").append(String.format("%.1f%%", ((float) opus.utilization()))).append("\n");
-                var timeElapsed = calculateTimeElapsedPercent(opus.resetsAt(), 7 * 24 * 60 * 60);
-                sb.append("  Time Elapsed: ").append(String.format("%.1f%%", timeElapsed)).append("\n");
-                var utilizationRate = timeElapsed > 0 ? (opus.utilization() / timeElapsed) * 100.0 : 0.0;
-                sb.append("  Utilization Rate: ").append(String.format("%.1f%%", utilizationRate)).append("\n");
-                if (opus.resetsAt() != null) {
-                    sb.append("  Resets: ").append(formatExactResetInfo(opus.resetsAt())).append("\n");
-                }
-            }
-            if (usageData.sevenDayOauthApps() != null) {
-                var oauth = usageData.sevenDayOauthApps();
-                sb.append("\n");
-                sb.append("7-Day OAuth Apps:\n");
-                sb.append("  Usage: ").append(String.format("%.1f%%", ((float) oauth.utilization()))).append("\n");
-                var timeElapsed = calculateTimeElapsedPercent(oauth.resetsAt(), 7 * 24 * 60 * 60);
-                sb.append("  Time Elapsed: ").append(String.format("%.1f%%", timeElapsed)).append("\n");
-                var utilizationRate = timeElapsed > 0 ? (oauth.utilization() / timeElapsed) * 100.0 : 0.0;
-                sb.append("  Utilization Rate: ").append(String.format("%.1f%%", utilizationRate)).append("\n");
-                if (oauth.resetsAt() != null) {
-                    sb.append("  Resets: ").append(formatExactResetInfo(oauth.resetsAt())).append("\n");
-                }
-            }
-        }
-        return sb.toString();
-    }
-
-    /**
-     * Format weekly reset time as "YYYY-MM-DD (X days)"
-     */
-    /*private String formatWeeklyResetTime(java.time.OffsetDateTime resetTimeUtc) {
-        var resetLocal = resetTimeUtc.atZoneSameInstant(java.time.ZoneId.systemDefault());
-        var resetDate = resetLocal.toLocalDate();
-        var now = java.time.LocalDate.now();
-        var daysUntil = java.time.temporal.ChronoUnit.DAYS.between(now, resetDate);
-
-        return String.format("%s (%d day%s)",
-            resetDate.toString(),
-            daysUntil,
-            daysUntil == 1 ? "" : "s"
-        );
-    }*/
-    
-    /**
-     * Format exact reset time as "timeLeft (at exactLocalTime)"
-     * Example: "2h 15m (at 14:30)" or "3d 4h 15m (at 10/25 14:30)"
-     */
-    private String formatExactResetInfo(java.time.OffsetDateTime resetTimeUtc) {
-        if (resetTimeUtc == null) return "N/A";
-
-        var now = java.time.OffsetDateTime.now();
-        var duration = java.time.Duration.between(now, resetTimeUtc);
-
-        if (duration.isNegative() || duration.isZero()) return "Now (Resetting...)";
-
-        var days = duration.toDays();
-        var hours = duration.toHoursPart();
-        var minutes = duration.toMinutesPart();
-
-        var timeLeft = new StringBuilder();
-        if (days > 0) timeLeft.append(days).append("d ");
-        if (hours > 0 || days > 0) timeLeft.append(hours).append("h ");
-        timeLeft.append(minutes).append("m");
-
-        var resetLocal = resetTimeUtc.atZoneSameInstant(java.time.ZoneId.systemDefault()).toLocalDateTime();
-        // Terse format: if > 1 day away, show MM/dd HH:mm, else just HH:mm
-        var timeFormatter = java.time.format.DateTimeFormatter.ofPattern(days > 0 ? "MM/dd HH:mm" : "HH:mm");
-
-        return String.format("%s (at %s)", timeLeft.toString().trim(), resetLocal.format(timeFormatter));
+        return UsageDetails.text(accountUsage);
     }
 
     /**

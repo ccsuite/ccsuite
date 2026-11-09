@@ -177,29 +177,36 @@ class FreeEstimatorTest {
 
     // ---- PRP 78: what the free lane can carry at all
 
-    @Test void theZonesAreTheMeasuredWindowLessTheRoomToSummariseIt() {
+    @Test void theZonesAreTheSafeStartAndTheWorkZoneOfTheMeasuredWindow() {
         var e = est();
-        assertEquals(2.0, e.summaryReserve(), 1e-9, "a summary of 20% of the input, in output tokens that cost 5 input tokens each: the input counts twice");
         assertEquals(680_000, e.windowInputTokens(), "a completely unloaded account takes about 680,000 input tokens per window (measured 660,000 to 770,000)");
-        assertEquals(340_000, e.actualMaxInputTokens(), "the largest conversation that is safe to start");
+        assertEquals(340_000, e.actualMaxInputTokens(), "the safe start: half the window, the rest kept to summarise");
         assertEquals(170_000, e.workZoneTokens(), "work freely up to here, then close the cycle; Claude Code compacts here");
         var ceiling = e.ceilingChars();
-        assertEquals((100 - 5 - 0.3 - 0.7) / 2 / 0.6 * 10_000, ceiling, 1e-6, "100 points, less the margin, the start and the reply, halved for the summary, at 0.6 points per 10,000 characters");
-        assertEquals(Math.round(ceiling / 2.6), e.claudeCodeTokens(ceiling), "characters over 2.6: the real tokenizer's figure for code and prose");
+        assertEquals((100 - 5 - 0.3 - 0.7) / 0.6 * 10_000, ceiling, 1e-6, "100 points, less the margin, the start and the reply, at 0.6 points per 10,000 characters: no summary reserve on the points (PRP 84)");
+        assertEquals((long) Math.ceil(ceiling / ccsuite.webproxy.TokenEstimate.CHARS_PER_TOKEN), e.claudeCodeTokens(ceiling), "characters over the proxy's one ratio");
         assertTrue(e.predictStart(Math.round(ceiling), "claude-sonnet-5-5") <= 95.0001, "a request of exactly the ceiling is predicted to leave the margin");
         var resumed = e.predictStart(655_260, "claude-sonnet-5-5");
-        assertTrue(resumed > 60 && resumed < 95, "the 655,260 characters of the resumed conversation fit an unloaded account (" + resumed + " points with the summary reserve), not one that is 40% used");
-        assertTrue(e.predictStart(1_800_000, "claude-sonnet-5-5") > 95, "1,800,000 characters are beyond any account");
+        assertTrue(resumed > 30 && resumed < 50, "the 655,260 characters of the resumed conversation cost " + resumed + " points: the start, the prompt at the measured rate and the reply, no summary reserve");
+        assertTrue(e.predictStart(1_800_000, "claude-sonnet-5-5") > 95 - 1e-9 || e.claudeCodeTokens(1_800_000) > e.actualMaxInputTokens(), "1,800,000 characters are beyond the safe start");
         assertTrue(e.maxChars(100, "claude-haiku-5-5") > 2 * ceiling, "Haiku takes much more");
     }
 
     @Test void whatFitsShrinksWithTheLoadOfTheAccount() {
         var e = est();
         assertTrue(e.maxChars(100, EST_SONNET) > e.maxChars(60, EST_SONNET) && e.maxChars(60, EST_SONNET) > e.maxChars(20, EST_SONNET));
-        assertEquals((60 - 5 - 0.3 - 0.7) / 2 / 0.6 * 10_000, e.maxChars(60, EST_SONNET), 1e-6, "60 points left: the biggest uncached prompt that leaves room for its summary");
+        assertEquals((60 - 5 - 0.3 - 0.7) / 0.6 * 10_000, e.maxChars(60, EST_SONNET), 1e-6, "60 points left: the biggest uncached prompt the points take");
         assertEquals(0, e.maxChars(5, EST_SONNET), 1e-9, "too little left to start a chat at all");
         var lines = String.join(" ", e.limitLines());
-        assertTrue(lines.contains("contextLimitTokens=874453") && lines.contains("windowInputTokens=680000") && lines.contains("actualMaxInputTokens=340000") && lines.contains("workZoneTokens=170000") && lines.contains("compactTokens=170000") && lines.contains("haikuCeilingChars="), lines);
+        assertTrue(lines.contains("contextLimitTokens=874453") && lines.contains("windowInputTokens=680000") && lines.contains("actualMaxInputTokens=340000") && lines.contains("workZoneTokens=170000") && lines.contains("compactTokens=425000") && lines.contains("haikuCeilingChars="), lines);
+    }
+
+    @Test void theClientCompactionWindowPutsItsOwnFirePointAboveTheHardZone() {
+        var e = est();
+        assertTrue(e.compactWindowTokens() * FreeEstimator.COMPACT_FIRE_FRACTION >= e.actualMaxInputTokens(), "Claude Code compacts at about 80% of the window (PRP 86, inferred): that point must not lie below hard");
+        assertTrue(e.compactWindowTokens() * FreeEstimator.COMPACT_FIRE_FRACTION - e.actualMaxInputTokens() < 1.0 / FreeEstimator.COMPACT_FIRE_FRACTION, "and not higher than a rounding step above it");
+        assertEquals(170_000, e.workZoneTokens(), "the work zone itself is unchanged: only the client's backstop moved");
+        assertEquals(425_000, e.compactWindowTokens());
     }
 
     @Test void theLedgerLearnsHowMuchPromptTheProxyMakesOfABodyAndFitsGrowWithIt() {

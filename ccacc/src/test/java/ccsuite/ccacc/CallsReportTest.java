@@ -128,6 +128,15 @@ class CallsReportTest {
         assertEquals(1, CallsReport.JSON.readTree(json).path("open").size());
     }
 
+    @Test void unparsedToolCallsAreCountedInTheProblemsReport() throws Exception {
+        var calls = CallsReport.parse(List.of(recent(10, "F1", true, 4_000, ""), recent(8, "F2", true, 5_000, ",\"unparsed\":2,\"repaired\":1,\"retried\":2"), recent(5, "F3", true, 6_000, ",\"unparsed\":1,\"retried\":2")));
+        var a = CallsReport.attention(calls, 60_000);
+        assertEquals(2, a.unparsed().size());
+        var text = String.join(" ", CallsReport.attentionText(a, Optional.empty()));
+        assertTrue(text.contains("unparsed tool calls (3 blocks in 2 calls)") && text.contains("F2") && text.contains("2 unread, 1 repaired"), text);
+        assertEquals(2, CallsReport.JSON.readTree(CallsReport.attentionJson(a, Optional.empty())).path("unparsed").size());
+    }
+
     @Test void theCallsCommandWithSinceShowsWhatNeedsAttentionAndWritesNothing(@TempDir Path dir) throws Exception {
         var file = dir.resolve("calls.jsonl");
         Files.write(file, List.of(recent(40, "F0", false, 1000, ",\"failure\":\"OLD\""), recent(10, "F1", true, 4_000, ""), recent(8, "F2", false, 5_000, ",\"failure\":\"RATE_LIMITED\"")));

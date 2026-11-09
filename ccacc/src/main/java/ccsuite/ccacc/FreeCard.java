@@ -26,6 +26,7 @@ final class FreeCard {
         try { System.out.println("🧩 Taskbar slot registered: " + SlotInstaller.install()); }
         catch (Exception e) { System.err.println("⚠️  Taskbar slot could not be installed: " + e.getMessage()); }
         card = TaskbarCard.free();
+        card.onRefresh(page -> FreePages.reread(gauges, page));
         card.modeLabel(() -> { var o = FreeOverall.of(gauges.snapshot(), limits.freeFiveLimit(), limits.freeWeekLimit(), Instant.now()); return o.accounts() == 0 ? "free" : o.withRoom() + "/" + o.accounts() + " room"; });
         card.start();
         push();
@@ -36,22 +37,27 @@ final class FreeCard {
         if (c == null) return;
         var rows = gauges.snapshot();
         var now = Instant.now();
-        c.updateFree(accounts(rows, now), overall(rows, limits.freeFiveLimit(), limits.freeWeekLimit(), now));
+        c.updateFree(accounts(FreePane.entries(gauges, now, ZoneId.systemDefault()), now), overall(rows, limits.freeFiveLimit(), limits.freeWeekLimit(), now));
     }
+
 
     void stop() { if (card != null) card.stop(); card = null; }
 
     // ---- what the card draws, from the gauge rows
 
-    /** One page per free account: its five-hour usage with the reset of that window, and its weekly usage (a free account shows no weekly reset). */
-    static List<AccountUsage> accounts(List<FreeGauges.Row> rows, Instant now) {
-        return rows.stream().map(r -> {
+    /**
+     * One page per free account, every one of them and in the order of {@link FreeStates} (usable first): its five-hour usage with the reset of that window, and its
+     * weekly usage (a free account shows no weekly reset). An account never read has a page that says "no data"; one whose restore time is not known has no bars.
+     */
+    static List<AccountUsage> accounts(List<FreeStates.Entry> entries, Instant now) {
+        return entries.stream().map(e -> {
+            var r = e.row() == null ? FreeStates.blank(e.id()) : e.row();
             var reset = r.resetsAt() != null && r.resetsAt() <= now.getEpochSecond();
             var data = new UsageData();
             if (r.five() != null) data.fiveHour(new Usage().utilization(reset ? 0 : r.five() * 100).resetsAt(reset ? null : at(r.resetsAt())));
             if (r.seven() != null) data.sevenDay(new Usage().utilization(r.seven() * 100));
             var credential = new CCAPICredential().id(r.id()).email(r.email()).tier(0).active(true);
-            return new AccountUsage(credential, r.five() == null && r.seven() == null ? null : data);
+            return new AccountUsage(credential, r.five() == null && r.seven() == null ? null : data).fetchedAt(r.read() == null ? OffsetDateTime.now() : OffsetDateTime.ofInstant(r.read(), ZoneOffset.UTC));
         }).toList();
     }
 

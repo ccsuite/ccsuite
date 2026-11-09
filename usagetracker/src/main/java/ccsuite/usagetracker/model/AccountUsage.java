@@ -114,24 +114,10 @@ public class AccountUsage {
         return Duration.ofSeconds(coolDownSec);
     }
 
-    /**
-     * Human-readable cool-down string (e.g. "18h", "1d 6h"), or null if not needed.
-     */
+    /** Terse cool-down (1d5h, 5h, 2m), or null if not needed. */
     public String getWeeklyCoolDownFormatted() {
         var duration = getWeeklyCoolDownDuration();
-        if (duration == null) return null;
-
-        var days = duration.toDays();
-        var hours = duration.toHoursPart();
-        var minutes = duration.toMinutesPart();
-
-        if (days > 0) {
-            return hours == 0 ? String.format("%dd", days) : String.format("%dd %dh", days, hours);
-        } else if (hours > 0) {
-            return minutes == 0 ? String.format("%dh", hours) : String.format("%dh %dm", hours, minutes);
-        } else {
-            return String.format("%dm", minutes);
-        }
+        return duration == null ? null : ccsuite.base.usage.Cooldown.terse(duration);
     }
 
     /**

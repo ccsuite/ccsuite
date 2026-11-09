@@ -124,10 +124,10 @@ final class CallsReport {
     // ---- what needs attention (PRP 78 R6): read-only, for the fclaude monitor
 
     /** The calls of a selection that failed, and the ones that took longer than the limit. */
-    record Attention(List<JsonNode> failed, List<JsonNode> slow, long slowMs) {}
+    record Attention(List<JsonNode> failed, List<JsonNode> slow, long slowMs, List<JsonNode> unparsed) {}
 
     static Attention attention(List<JsonNode> calls, long slowMs) {
-        return new Attention(calls.stream().filter(c -> c.has("ok") && !c.path("ok").asBoolean()).toList(), calls.stream().filter(c -> c.path("ok").asBoolean(true) && c.path("ms").asLong() > slowMs).toList(), slowMs);
+        return new Attention(calls.stream().filter(c -> c.has("ok") && !c.path("ok").asBoolean()).toList(), calls.stream().filter(c -> c.path("ok").asBoolean(true) && c.path("ms").asLong() > slowMs).toList(), slowMs, calls.stream().filter(c -> c.path("unparsed").asInt() > 0).toList());   // PRP 81: calls whose reply held a tool block that could not be read
     }
 
     static String when(JsonNode c) { return instant(c).map(t -> t.truncatedTo(java.time.temporal.ChronoUnit.SECONDS).toString()).orElse("?"); }
@@ -137,6 +137,8 @@ final class CallsReport {
         var out = new ArrayList<String>();
         out.add("failed (" + a.failed().size() + "):");
         a.failed().forEach(c -> out.add("  " + when(c) + "  " + key(c, "account") + "  " + key(c, "model") + "  " + key(c, "failure") + "  " + c.path("ms").asLong() / 1000 + " s" + (c.hasNonNull("error") ? "  " + c.get("error").asText() : "")));
+        out.add("unparsed tool calls (" + a.unparsed().stream().mapToInt(c -> c.path("unparsed").asInt()).sum() + " blocks in " + a.unparsed().size() + " calls):");
+        a.unparsed().forEach(c -> out.add("  " + when(c) + "  " + key(c, "account") + "  " + key(c, "model") + "  " + c.path("unparsed").asInt() + " unread, " + c.path("repaired").asInt() + " repaired, asked again " + c.path("retried").asInt() + "x"));
         out.add("slow (" + a.slow().size() + ", over " + a.slowMs() / 1000 + " s):");
         a.slow().forEach(c -> out.add("  " + when(c) + "  " + key(c, "account") + "  " + key(c, "model") + "  " + c.path("ms").asLong() / 1000 + " s  sent " + c.path("promptChars").asLong() + " chars"));
         if (open.isEmpty()) out.add("open calls: unknown (ccacc is not running, or did not answer)");
@@ -151,6 +153,8 @@ final class CallsReport {
         var root = JSON.createObjectNode();
         var failed = root.putArray("failed");
         a.failed().forEach(failed::add);
+        var unparsed = root.putArray("unparsed");
+        a.unparsed().forEach(unparsed::add);
         var slow = root.putArray("slow");
         a.slow().forEach(slow::add);
         if (open.isPresent()) { var o = root.putArray("open"); open.get().forEach(o::add); }
