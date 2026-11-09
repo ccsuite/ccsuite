@@ -56,7 +56,12 @@ final class FreeEstimator {
     /** PRP 88: the terms model, always learning; it predicts when {@code costModel} is "terms", else it runs in the shadow. */
     final FreeCostModel terms;
 
-    FreeEstimator(LaneSettings settings) { this.settings = settings; this.terms = new FreeCostModel(settings); }
+    FreeEstimator(LaneSettings settings) { this.settings = settings; this.terms = new FreeCostModel(settings); terms.rateFactor = () -> rateFactor.getAsDouble(); }
+
+    /** PRP 88: the price of this hour over the off-peak price (the rate probe's factor; 1 when none is fresh). Every prediction is multiplied by it; learning divides it out. */
+    volatile java.util.function.DoubleSupplier rateFactor = () -> 1.0;
+
+    double rateFactor() { var f = rateFactor.getAsDouble(); return f > 0 ? f : 1.0; }
 
     boolean useTerms() { return "terms".equalsIgnoreCase(settings.costModel()); }
 
@@ -98,7 +103,7 @@ final class FreeEstimator {
 
     /** Points of the five-hour window a request with a body of this size is predicted to cost: a new chat costs its start plus its prompt, a continued one only what is new; both the expected reply. */
     synchronized double predict(long bodyChars, String cache, String model) {
-        return Math.max(MIN_CALL_POINTS, fixed(model, cache) + rate(model) * bodyChars * promptPerBody / 10_000.0 + reply(model));
+        return Math.max(MIN_CALL_POINTS, rateFactor() * (fixed(model, cache) + rate(model) * bodyChars * promptPerBody / 10_000.0 + reply(model)));
     }
 
     synchronized double predict(long bodyChars, String cache) { return predict(bodyChars, cache, SONNET); }
@@ -106,14 +111,15 @@ final class FreeEstimator {
     /** The cost to hold back when a NEW conversation is placed: its start, its prompt, the reply. No summary reserve (PRP 84): the safe start already leaves the room to summarise. */
     synchronized double predictStart(long bodyChars, String model) {
         if (useTerms()) return terms.predict(new FreeCostModel.Input(model, "new", bodyChars * promptPerBody, 0, null, null));
-        return fixed(model, "new") + rate(model) * bodyChars * promptPerBody / 10_000.0 + reply(model);
+        return rateFactor() * (fixed(model, "new") + rate(model) * bodyChars * promptPerBody / 10_000.0 + reply(model));
     }
 
     /** The biggest request body (characters) a new chat can start with when this much room is left, keeping the margin: what fits the points. */
     synchronized double maxChars(double roomPoints, String model) {
         if (useTerms()) return terms.maxChars(roomPoints, model) / promptPerBody;
-        var left = roomPoints - settings.guardMarginPoints() - fixed(model, "new") - reply(model);
-        return Math.max(0, left / rate(model) * 10_000.0 / promptPerBody);
+        var f = rateFactor();
+        var left = roomPoints - settings.guardMarginPoints() - f * (fixed(model, "new") + reply(model));
+        return Math.max(0, left / (f * rate(model)) * 10_000.0 / promptPerBody);
     }
 
     /** The largest first call, uncached, that a completely unloaded free account takes on Sonnet 5.5 by points. */
@@ -271,7 +277,7 @@ final class FreeEstimator {
         var units = (c.promptChars() != null ? c.promptChars() : c.chars() * promptPerBody) / 10_000.0;
         if (units < 1.0 || c.observed() < 1.0) return;   // the gauge moves in steps of one point: a smaller movement is noise
         var seed = settings.pointsPer10kChars() * factor(f);
-        var own = c.observed() - fixed(c.model(), c.cache()) - reply(c.model());   // what is left for the prompt itself
+        var own = c.observed() / rateFactor() - fixed(c.model(), c.cache()) - reply(c.model());   // in off-peak points: the factor of the hour is not learned into the rate   // what is left for the prompt itself
         var fresh = Math.max(seed * 0.2, Math.min(seed * 5, own / units));
         var old = rates.getOrDefault(f, seed);
         rates.put(f, old + ALPHA * (fresh - old));

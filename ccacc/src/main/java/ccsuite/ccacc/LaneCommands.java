@@ -35,7 +35,7 @@ final class LaneCommands {
                 case "on", "off" -> onOff(sub.equals("on"));
                 case "set" -> set(args);
                 case "free-accounts" -> accounts(args);
-                default -> Reply.error("lanes: show | limits | zones [--room N] | open | drain | hold on|off | on | off | set <freeFiveLimit|freeWeekLimit|perAccountSlots|freePingEveryMinutes|freePingFreshMinutes|freePingSpreadSeconds|pclaudePort|fclaudePort|chatReuse|paidPin|bodyLog|bodyLogDays|costModel|termsPerCall|termsFreshPer10k|termsReadPer10k|termsColdPer10k|termsReplyPer10k|termsWarmSeconds|termsReplyChars> <value> | free-accounts <id,id|all>");
+                default -> Reply.error("lanes: show | limits | zones [--room N] | open | drain | hold on|off | on | off | set <freeFiveLimit|freeWeekLimit|perAccountSlots|freePingEveryMinutes|freePingFreshMinutes|freePingSpreadSeconds|pclaudePort|fclaudePort|chatReuse|paidPin|bodyLog|bodyLogDays|costModel|termsPerCall|termsFreshPer10k|termsReadPer10k|termsColdPer10k|termsReplyPer10k|termsWarmSeconds|termsReplyChars|rateProbe|rateProbeEveryMinutes|rateProbeAccounts|rateProbeChars|rateProbeMinRoom|rateProbeMaxAgeMinutes> <value> | free-accounts <id,id|all>");
             };
         } catch (IllegalArgumentException e) {
             return Reply.error(e.getMessage());
@@ -94,7 +94,7 @@ final class LaneCommands {
     }
 
     Reply set(List<String> args) {
-        if (args.size() < 4) throw new IllegalArgumentException("lanes set <freeFiveLimit|freeWeekLimit|perAccountSlots|freePingEveryMinutes|freePingFreshMinutes|freePingSpreadSeconds|pclaudePort|fclaudePort|chatReuse|paidPin|bodyLog|bodyLogDays|costModel|termsPerCall|termsFreshPer10k|termsReadPer10k|termsColdPer10k|termsReplyPer10k|termsWarmSeconds|termsReplyChars> <value>");
+        if (args.size() < 4) throw new IllegalArgumentException("lanes set <freeFiveLimit|freeWeekLimit|perAccountSlots|freePingEveryMinutes|freePingFreshMinutes|freePingSpreadSeconds|pclaudePort|fclaudePort|chatReuse|paidPin|bodyLog|bodyLogDays|costModel|termsPerCall|termsFreshPer10k|termsReadPer10k|termsColdPer10k|termsReplyPer10k|termsWarmSeconds|termsReplyChars|rateProbe|rateProbeEveryMinutes|rateProbeAccounts|rateProbeChars|rateProbeMinRoom|rateProbeMaxAgeMinutes> <value>");
         var key = args.get(2);
         var value = args.get(3);
         Consumer<LaneSettings> apply = switch (key) {
@@ -127,6 +127,15 @@ final class LaneCommands {
             case "termsReplyPer10k" -> l -> l.termsReplyPer10k(atLeast(key, value, 0.0));
             case "termsWarmSeconds" -> l -> l.termsWarmSeconds(atLeast(key, value, 0.0));
             case "termsReplyChars" -> l -> l.termsReplyChars(atLeast(key, value, 0.0));
+            case "rateProbe" -> {
+                if (!List.of("on", "off", "true", "false").contains(value.toLowerCase())) throw new IllegalArgumentException("rateProbe takes on or off");
+                yield l -> l.rateProbe(value.equalsIgnoreCase("on") || value.equalsIgnoreCase("true"));   // PRP 88: off = the factor goes back to 1 at once
+            }
+            case "rateProbeEveryMinutes" -> l -> l.rateProbeEveryMinutes(atLeast(key, value, 10));
+            case "rateProbeAccounts" -> l -> l.rateProbeAccounts(atLeast(key, value, 1));
+            case "rateProbeChars" -> l -> l.rateProbeChars(atLeast(key, value, 20_000));
+            case "rateProbeMinRoom" -> l -> l.rateProbeMinRoom(atLeast(key, value, 0));
+            case "rateProbeMaxAgeMinutes" -> l -> l.rateProbeMaxAgeMinutes(atLeast(key, value, 10));
             default -> throw new IllegalArgumentException("unknown setting '" + key + "'");
         };
         change(apply);

@@ -99,6 +99,10 @@ final class LaneHost {
         else out.add("free lane: " + (f.available() ? f.ids.size() + " accounts " + f.ids + ", " + f.inFlight() + " in flight, room " + (f.hasHeadroom() ? "yes" : "no") + ", chat reuse " + l.chatReuseMode() + (f.hold ? ", HELD (new requests get 503)" : "")
                 : "not started: " + f.problem));
         if (f != null && f.available()) out.add("  innerFreePort=" + f.port + "  (the free proxy inside ccacc; it changes at every lane start)   costModel=" + l.costModel());   // PRP 88: for the calibration runner, so it never scans ports
+        if (f != null && f.available()) { var r = f.rateProbe.current; var now = java.time.Instant.now();   // PRP 88: the price of the hour
+            out.add("  rateFactor=" + String.format("%.2f", f.estimator.rateFactor()) + (r == null ? "  (no probe yet: off-peak prices assumed" + (l.rateProbe() ? "; the first probe runs a few minutes after the lane starts)" : "; the rate probe is off)")
+                    : String.format("  (probed %s UTC on %s: %.2f points per 10k characters; %s)", r.t().atZone(java.time.ZoneOffset.UTC).toLocalTime().withNano(0), String.join(", ", r.accounts()), r.per10k(),
+                        java.time.Duration.between(r.t(), now).toMinutes() > l.rateProbeMaxAgeMinutes() ? "too old, not applied" : "applied to every prediction"))); }
         if (f != null && f.available()) { out.add(f.estimator.limitText());
             out.add("free accounts, room as the ledger predicts (corrected by each gauge reading; points of the five-hour window):"); out.addAll(f.roomLines()); }
         var paid = service.paid();

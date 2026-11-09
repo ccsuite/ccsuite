@@ -58,6 +58,14 @@ public class LaneSettings {
      * before a chat has replied is {@code termsReplyChars}. A scale per model family and a factor per chat are learned from the gauge on top of these.
      */
     double termsPerCall = 0.1, termsFreshPer10k = 0.6, termsReadPer10k = 0.015, termsColdPer10k = 0.6, termsReplyPer10k = 2.1, termsWarmSeconds = 3600, termsReplyChars = 3000;
+    /**
+     * PRP 88, the rate probe (user 2026-11-09: "every hour choose randomly 2 accounts to test the current hourly rate as a default system"). The price changes with the hour (measured about 3
+     * times dearer from 13:00 UTC on 2026-11-09). Every {@code rateProbeEveryMinutes} the lane sends {@code rateProbeAccounts} new chats of {@code rateProbeChars} characters of Java source,
+     * each to a random free account with at least {@code rateProbeMinRoom} points left and no session on it, and reads the points the gauge moved. Their mean per 10,000 characters over
+     * {@link #termsFreshPer10k} (the off-peak rate the same content cost) is the RATE FACTOR, which multiplies every predicted cost while it is younger than {@code rateProbeMaxAgeMinutes}.
+     */
+    boolean rateProbe = true;
+    int rateProbeEveryMinutes = 60, rateProbeAccounts = 2, rateProbeChars = 150_000, rateProbeMinRoom = 40, rateProbeMaxAgeMinutes = 120;
     /** Input tokens a completely unloaded free account takes in one five-hour window, uncached (measured 660,000 to 770,000; the middle). Characters become tokens only through the proxy's one ratio, {@code TokenEstimate.CHARS_PER_TOKEN} (PRP 84): there is no second copy here. */
     double windowInputTokens = 680_000;
     /** The SAFE START (PRP 84): a new conversation may start while its estimated input is at most this many tokens (half the window; the rest is kept to summarise). Above it the guard refuses. */

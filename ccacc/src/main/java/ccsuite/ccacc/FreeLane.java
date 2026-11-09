@@ -97,7 +97,11 @@ final class FreeLane implements Lane {
         this.gauges = gauges; this.accounts = accounts; this.settings = settings; this.ledger = ledger;
         this.estimator = ledger == null ? new FreeEstimator(settings) : FreeEstimator.fromLedger(ledger, settings, Instant.now());
         gauges.onReading = (row, source) -> estimator.observe(row, source).ifPresent(this::keep);
+        estimator.rateFactor = () -> rateProbe.factor(Instant.now());   // PRP 88: the price of the hour, as probed
     }
+
+    /** PRP 88: measures the price of the hour on two random accounts (started with the proxy). */
+    final FreeRateProbe rateProbe = new FreeRateProbe(this);
 
     private void keep(FreeLedger.Correction c) { if (ledger != null) ledger.append(c); }
 
@@ -118,6 +122,7 @@ final class FreeLane implements Lane {
         if (ids.isEmpty()) { problem = "no free account to serve from (tier 0, with a web session key and not monitor-only)"; return; }
         try {
             System.setProperty("ccapi.chatReuse", settings.chatReuseMode());
+            if (System.getProperty("ccapi.chatReuse.dir") == null) System.setProperty("ccapi.chatReuse.dir", Path.of(System.getProperty("user.home"), "ccsuite", "webproxy", "chats").toString());   // PRP 88: the chats survive a restart of the lane
             if (System.getProperty("ccapi.perAccountConcurrency") == null) System.setProperty("ccapi.perAccountConcurrency", String.valueOf(settings.perAccountSlots()));
             try (var s = new ServerSocket(0, 0, InetAddress.getLoopbackAddress())) { port = s.getLocalPort(); }
             UsageFetcher.freeSource = this::usageOf;
@@ -125,6 +130,7 @@ final class FreeLane implements Lane {
             proxy = new CCAPIProxy(port, FreeGauges.free(accounts.get()).stream().filter(c -> ids.contains(c.id())).toList());
             proxy.start();
             up = true;
+            if (ledger != null) rateProbe.start();   // not in tests (no ledger): a probe spends real quota
             problem = null;
         } catch (Exception e) {
             problem = "the free lane did not start: " + e.getMessage();
@@ -136,6 +142,7 @@ final class FreeLane implements Lane {
     }
 
     synchronized void stop() {
+        rateProbe.stop();
         if (proxy != null) proxy.stop();
         proxy = null;
         up = false;

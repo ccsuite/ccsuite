@@ -20,6 +20,11 @@ final class LaneChats {
 
     State get(String key) { return key == null ? null : chats.get(key); }
 
+    /** The chats called since this moment (sessions in use: the rate probe leaves their accounts alone). */
+    Set<String> calledSince(Instant since) {
+        synchronized (chats) { return chats.entrySet().stream().filter(e -> e.getValue().last().isAfter(since)).map(Map.Entry::getKey).collect(java.util.stream.Collectors.toSet()); }
+    }
+
     /** The model's input for a call: a new chat sends its whole body (times the prompt-per-body ratio), a continued one what is new minus the reply the web already holds. Null when a continued chat is not known here. */
     FreeCostModel.Input input(String key, String account, String session, String model, String cache, long chars, double promptPerBody, Instant now) {
         if ("new".equals(cache)) return new FreeCostModel.Input(model, cache, chars * promptPerBody, 0, null, account == null ? null : FreeCostModel.chatOf(account, session));

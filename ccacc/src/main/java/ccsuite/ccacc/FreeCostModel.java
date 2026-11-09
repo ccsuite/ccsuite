@@ -27,6 +27,11 @@ final class FreeCostModel {
 
     FreeCostModel(LaneSettings s) { this.s = s; }
 
+    /** The price of this hour over the off-peak price (set by the estimator from the rate probe); the measured weights are off-peak ones. */
+    volatile java.util.function.DoubleSupplier rateFactor = () -> 1.0;
+
+    private double hour() { var f = rateFactor.getAsDouble(); return f > 0 ? f : 1.0; }
+
     private double factor(String model) { return FreeEstimator.family(model).equals("haiku") ? s.haikuFactor() : 1.0; }
 
     boolean warm(Long gapS) { return gapS == null || gapS < s.termsWarmSeconds(); }
@@ -34,7 +39,7 @@ final class FreeCostModel {
     /** The model's cost before any learning, for a reply of this size. */
     double raw(Input in, double replyChars) {
         var held = "new".equals(in.cache()) ? 0 : in.heldChars();
-        return factor(in.model()) * (s.termsPerCall() + s.termsFreshPer10k() * in.promptChars() / 1e4 + (warm(in.gapS()) ? s.termsReadPer10k() : s.termsColdPer10k()) * held / 1e4
+        return hour() * factor(in.model()) * (s.termsPerCall() + s.termsFreshPer10k() * in.promptChars() / 1e4 + (warm(in.gapS()) ? s.termsReadPer10k() : s.termsColdPer10k()) * held / 1e4
                 + s.termsReplyPer10k() * replyChars / 1e4);
     }
 
@@ -63,7 +68,7 @@ final class FreeCostModel {
         var in = new Input(model, "new", 0, 0, null, null);
         var sc = scale(model);
         var left = roomPoints - s.guardMarginPoints() - raw(in, s.termsReplyChars()) * sc;
-        return Math.max(0, left / (factor(model) * s.termsFreshPer10k() * sc) * 1e4);
+        return Math.max(0, left / (hour() * factor(model) * s.termsFreshPer10k() * sc) * 1e4);
     }
 
     /** The input of a ledger call (null when it lacks what the model needs: the prompt size, and the held size of a continued chat). */

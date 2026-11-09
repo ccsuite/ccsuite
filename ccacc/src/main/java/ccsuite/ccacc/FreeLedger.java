@@ -153,7 +153,7 @@ final class FreeLedger {
         Seed newer(Seed o) { return o.t.isAfter(t) ? o : this; }
     }
 
-    private void write(String prefix, Instant t, Map<String, Object> line) {
+    void write(String prefix, Instant t, Map<String, Object> line) {
         try {
             Files.createDirectories(dir);
             Files.writeString(dir.resolve(prefix + t.atZone(ZoneOffset.UTC).toLocalDate() + ".jsonl"), JSON.writeValueAsString(line) + "\n", StandardOpenOption.CREATE, StandardOpenOption.APPEND);
@@ -182,7 +182,7 @@ final class FreeLedger {
     }
 
     /** The lines of the day files that can hold something from {@code since} on (the day files are named by UTC day). */
-    private List<String> lines(String prefix, Instant since) {
+    List<String> lines(String prefix, Instant since) {
         var out = new ArrayList<String>();
         if (!Files.isDirectory(dir)) return out;
         var firstDay = since == null ? null : since.atZone(ZoneOffset.UTC).toLocalDate().toString();
