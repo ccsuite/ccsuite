@@ -8,6 +8,8 @@ import module java.base;
  */
 final class WinProbe implements Probe {
 
+    private static final java.util.regex.Pattern EXE = java.util.regex.Pattern.compile("(?i).*\\\\claude\\.exe(\\.old\\.\\d+(\\.\\d+)?)?");
+
     public List<Proc> claudes() {
         if (!Win.available()) return List.of();
         return ProcessHandle.allProcesses().filter(WinProbe::isClaude).map(WinProbe::proc).filter(Objects::nonNull).toList();
@@ -27,10 +29,17 @@ final class WinProbe implements Probe {
         return out;
     }
 
+    /** claude.exe, or what it is renamed to while it runs and Claude Code updates itself: claude.exe.old.<timestamp>.<pid>. Nothing else counts. */
+    static boolean isClaudeExe(String path) { return EXE.matcher(path).matches(); }
+
     static boolean isClaude(ProcessHandle h) {
         var info = h.info();
-        return info.command().map(c -> c.toLowerCase().endsWith("\\claude.exe")).orElse(false)
-            && info.user().map(u -> u.substring(u.lastIndexOf('\\') + 1).equalsIgnoreCase(System.getProperty("user.name"))).orElse(false);
+        return ours(info.command().orElse(""), info.user().orElse(""), System.getProperty("user.name"));
+    }
+
+    /** The whole identity rule: a claude.exe (or its renamed form) whose owner, as DOMAIN\name, is the current user; an owner that cannot be read is not ours. */
+    static boolean ours(String command, String owner, String me) {
+        return isClaudeExe(command) && !owner.isEmpty() && owner.substring(owner.lastIndexOf('\\') + 1).equalsIgnoreCase(me);
     }
 
     static Proc proc(ProcessHandle h) {

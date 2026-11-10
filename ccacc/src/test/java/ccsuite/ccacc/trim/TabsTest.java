@@ -19,6 +19,12 @@ class TabsTest {
 
     @Test void eachLiveTabKeepsItsSessionName() { assertEquals("one", Tabs.parse(LIST.replace("\"pid\":10,\"claude\":{", "\"pid\":10,\"claude\":{\"name\":\"one\",")).nameFor(Set.of(1L, 10L))); }
 
+    @Test void aStatusGlyphInFrontOfATitleIsNotPartOfTheName() {
+        assertEquals("ccram-01-orchestrator", Tabs.plain("✳ ccram-01-orchestrator"));
+        assertEquals("speechfx-06-mic", Tabs.plain("◐ speechfx-06-mic"));
+        assertEquals("plain", Tabs.plain("plain"));
+    }
+
     @Test void anAnswerThatIsNotOkOrNotJsonHoldsNothing() {
         assertEquals(Set.of(), Tabs.parse("{\"ok\":false}").hold());
         assertEquals(Set.of(), Tabs.parse("not json").hold());

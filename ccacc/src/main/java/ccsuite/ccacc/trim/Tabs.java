@@ -19,13 +19,20 @@ final class Tabs {
                     var pid = tab.path("pid").asLong();
                     var claude = tab.path("claude");
                     if (tab.path("selected").asBoolean(false) || "busy".equals(claude.path("status").asText(""))) out.hold().add(pid);
-                    var name = claude.path("name").asText(tab.path("title").asText(""));
+                    var name = plain(claude.path("name").asText(tab.path("title").asText("")));
                     if (!name.isEmpty()) out.names().put(pid, name);
                 }
         } catch (IOException | RuntimeException e) {
             return new TabsInfo();
         }
         return out;
+    }
+
+    /** A tab title carries a status glyph in front (a star, a half circle); the session name is what follows it. */
+    static String plain(String title) {
+        var i = 0;
+        while (i < title.length() && !Character.isLetterOrDigit(title.charAt(i))) i++;
+        return title.substring(i);
     }
 
     /** Asks Tabs; an empty answer when it does not respond within a few seconds. */
