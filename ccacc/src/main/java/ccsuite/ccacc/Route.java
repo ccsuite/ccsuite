@@ -8,12 +8,12 @@ import java.util.Set;
  * the exe's own install, uninstall and update, the commands that change the running app (mode, part, account), or one of cswap's commands.
  */
 enum Route {
-    APP, TUI, SERVE, INSTALL, UNINSTALL, UPDATE, MIGRATE, CCU, CCLS, SWAP, CONTROL, GATE, FREE, CALLS, TOKENCHECK, STOPGATE;
+    APP, TUI, SERVE, INSTALL, UNINSTALL, UPDATE, MIGRATE, CCU, CCLS, SWAP, CONTROL, GATE, FREE, CALLS, TOKENCHECK, STOPGATE, TRIM;
 
     static final Set<String> HELP = Set.of("-h", "--help", "help");
 
     /** The command words that are ccacc's own; the rest of the line after them goes to the route. */
-    static final Set<String> WORDS = Set.of("app", "tui", "serve", "install", "uninstall", "update", "migrate", "ccu", "cswap", "ccls", "free", "calls", "tokencheck", "stop-gate");
+    static final Set<String> WORDS = Set.of("app", "tui", "serve", "install", "uninstall", "update", "migrate", "ccu", "cswap", "ccls", "free", "calls", "tokencheck", "stop-gate", "trim");
 
     static Route of(String[] args) {
         if (args.length == 0) return APP;
@@ -34,6 +34,7 @@ enum Route {
             case "calls" -> CALLS;
             case "tokencheck" -> TOKENCHECK;
             case "stop-gate" -> STOPGATE;
+            case "trim" -> TRIM;
             default -> args[0].startsWith("--no-") ? APP : SWAP;
         };
     }

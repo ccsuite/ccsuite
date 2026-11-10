@@ -13,6 +13,7 @@ ccacc: Claude Code accounts (ccu, cswap and ccls in one)
   ccacc mode auto|locked|paused    what the watcher may do on its own (changes the running app)
   ccacc free [--overall] [--json] [--refresh]   usage of the free accounts: ALL first, then each (from the running app, no new probes)
   ccacc calls [--job TAG] [--since 30m] [--by job|session|account|model] [--json]   what the free lane served and cost (call log of the proxy)
+  ccacc trim status | now [--pid N] | on | off      give back the RAM of idle claude.exe sessions (working set only; off until switched on, also a row in the tray menu)
   ccacc part watch|widget|server|gate on|off    turn a part of the app on or off
   ccacc lanes                 the two lanes, each on its own port and never mixed: pclaude 8681 (the paid accounts, every model) and fclaude 8686 (the free accounts, haiku and sonnet), and their state
   ccacc lanes on|off | set <setting> <value> | free-accounts <ids|all>    switch the lanes, tune them (chatReuse off|on|fresh, paidPin <ACCOUNT|off>, perAccountSlots); start Claude Code on them with pclaude.bat and fclaude.bat

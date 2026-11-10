@@ -78,6 +78,7 @@ public final class CcaccApp extends Application {
             if (!getParameters().getRaw().contains("--no-free")) startFreeUsage(free, freePane);
             else if (ccsuite.usagetracker.ui.UsageWidget.WINDOWS) ccsuite.usagetracker.taskbar.SlotLayout.freeCard(false);   // the band shrinks back to the usage card alone
             IdleTrim.start();
+            ccsuite.ccacc.trim.TrimLoop.start(() -> parts.lanes != null && parts.lanes.openLines().stream().anyMatch(l -> l.startsWith("open ")));
             parts.startConfigured(getParameters().getRaw());
             if (!getParameters().getRaw().contains("--no-free")) {
                 pinger = new FreePinger(free, () -> core.creds.credentials(), () -> parts.settings.lanes(), FreeLedger.standard());

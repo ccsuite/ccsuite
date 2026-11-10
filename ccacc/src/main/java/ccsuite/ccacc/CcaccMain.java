@@ -42,6 +42,7 @@ public final class CcaccMain {
             case CALLS -> System.exit(CallsCli.run(rest));
             case TOKENCHECK -> System.exit(TokenCheck.run(rest));
             case STOPGATE -> System.exit(stopGate());
+            case TRIM -> System.exit(ccsuite.ccacc.trim.TrimCli.run(rest, () -> CallsCli.openFromApp().map(open -> !open.isEmpty())));
         }
     }
 

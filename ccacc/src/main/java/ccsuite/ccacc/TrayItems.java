@@ -47,6 +47,7 @@ final class TrayItems {
         l.add(item("Usage window (paid accounts)", () -> openPaidDialog.run()));
         if (hasFree.getAsBoolean()) l.add(item("Usage window (free accounts)", () -> openFreeDialog.run()));
         l.add(item("Lanes…", () -> openLanes.run()));
+        l.add(item(ccsuite.ccacc.trim.TrimMenu.label(), ccsuite.ccacc.trim.TrimMenu::toggle));
         l.add(new SeparatorMenuItem());
         var w = parts.watcher;
         if (w != null) {

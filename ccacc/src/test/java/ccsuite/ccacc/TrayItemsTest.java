@@ -63,7 +63,7 @@ class TrayItemsTest {
         assertTrue(t.contains("● Auto: switch and rebalance on its own"), "the mode is flat in the menu, the current one marked");
         assertTrue(t.contains("○ Locked: stay on this account, still warn"));
         assertTrue(t.contains("○ Paused: do not poll at all"));
-        assertTrue(t.stream().filter(s -> !s.equals("---")).count() <= 12, "the menu stays short: " + t);
+        assertTrue(t.stream().filter(s -> !s.equals("---")).count() <= 13, "the menu stays short (one row more since the idle trimmer toggle, PRP 89): " + t);
         assertTrue(texts(i.modeItems()).contains("● Auto: switch and rebalance on its own"));
         assertTrue(texts(i.modeItems()).contains("○ Locked: stay on this account, still warn"));
     }
