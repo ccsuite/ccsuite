@@ -16,10 +16,10 @@ What it does:
 - Lets you give each account a limit (the share of its quota Claude Code may use), and mark an account **monitor only**: it is watched and counted in the totals, but never switched to.
 - Protects accounts that someone else relies on. In Auto mode, once an account has used more than half of its 5-hour quota, faster than the 5 hours pass, Claude Code moves off it, and no move sends load onto an account past that line. Mark your own accounts **primary** to exempt them.
 - Does not waste a week's quota. Quota left unused when a week resets is lost, so in its last 24 hours an account is used up first: a primary account to 100%, any other up to its own limit.
-- Windows only: a small card in the taskbar, one account at a time, with the active account's name glowing, red when you are spending too fast.
+- A small usage window that stays on top of everything: a row per account and the all-accounts row, the active account's name glowing, red when you are spending too fast. It stands at the bottom right of the screen until you move it, remembers where you put it, and can be switched to a narrow bar on the left edge (the Servers tab). Close it with the x and it stays closed; open it again from the tray menu.
 - Can run a local proxy on the machine (what `ccls` did). It is off until you turn it on with `ccacc part server on`.
 - Two local lanes for Claude Code, each on its own port and never mixed (`ccacc lanes`). The **paid lane** (port 8681) goes through your paid accounts, every model. The **free lane** (port 8686) goes through your own free claude.ai accounts, Haiku and Sonnet, and works out which free account has the most room for a new conversation; it keeps a chat alive across turns and across a restart of ccacc, measures once an hour what a free window really costs, and tells Claude Code to compact before a conversation outgrows what a free account takes. Start Claude Code on a lane with `pclaude.bat` or `fclaude.bat` (in `ccacc/scripts` of this repository; they leave `claude.exe` and its settings alone). The lanes are off until you run `ccacc lanes on`. The free lane drives claude.ai the way a browser does, which Anthropic can change at any time, so treat it as something that may stop working.
-- Shows your free accounts on their own: a tray icon, a window and a second taskbar card for them, and `ccacc free` and `ccacc calls` for what the free lane served and what it cost.
+- Shows your free accounts on their own: a window of their own (teal, beside the usage window), and `ccacc free` and `ccacc calls` for what the free lane served and what it cost.
 - Gives back the memory of idle Claude Code sessions (Windows): `ccacc trim on` empties the working set of a `claude.exe` that has done nothing for a few minutes, so Windows can use that RAM for something else. It does not end or change a session, it holds back any session that is busy (and, when you use the Tabs terminal, the tab you are looking at), and it is off until you switch it on.
 - A local gate on `127.0.0.1` for your own scripts and tools (`ccacc gate`, `ccacc ledger`): a key per caller, the models it may use, a budget in quota points, and a record of every call. It is off until you turn it on with `ccacc part gate on`.
 
@@ -86,9 +86,11 @@ Commands that change something are handed to the running app, so the app is the 
 
 This is a beta.
 
-- Windows: used every day by its author.
+- Windows 11 with the old taskbar brought back by ExplorerPatcher: used every day by its author, the window and the card both.
+- Windows 11 with the standard taskbar (build 22621 and later): the usage window is the default there; not yet looked at on a real machine by anyone, so reports are welcome. The taskbar card is not expected to show there.
 - macOS: built and its command line tested on a macOS machine in CI, but the tray icon, the windows and the Keychain access have not yet been tried by a person on a Mac. Claude Code keeps its login in the Keychain on macOS; ccacc reads and writes it there with the system `security` tool, and falls back to the credentials file when there is no Keychain item. Reports from Mac users are welcome.
-- The taskbar card, the memory trimmer and the `pclaude.bat` / `fclaude.bat` launchers exist on Windows only.
+- The taskbar card is optional, off by default, and it only works on a Windows 10 style taskbar, which is what Windows 11 with ExplorerPatcher gives (where its author uses it; Windows 10 itself has not been tried); turn it on in the Servers tab, "Card in the taskbar". On the standard Windows 11 taskbar nobody has seen it show up yet, so there the usage window is the display, and ccacc places nothing in the taskbar and changes nothing about it.
+- The memory trimmer and the `pclaude.bat` / `fclaude.bat` launchers exist on Windows only.
 - The memory trimmer and the free lane's hourly probe have been run by their author on one Windows machine for a few days; the trimmer has not been tried with sessions other than Claude Code's own.
 - The free lane depends on how claude.ai behaves today and has no guarantee; the paid lane and everything else use Anthropic's own interfaces.
 

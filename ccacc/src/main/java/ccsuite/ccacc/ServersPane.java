@@ -21,7 +21,7 @@ final class ServersPane extends VBox implements Page {
     final Parts parts;
     final TrayItems items;
     final CheckBox watch = new CheckBox("Account watcher"), widget = new CheckBox("Usage widget"), card = new CheckBox("Card in the taskbar"),
-            floating = new CheckBox("Floating usage window"), server = new CheckBox("Local server"), gate = new CheckBox("Gate"), relay = new CheckBox("Relay");
+            floating = new CheckBox("Floating usage window"), sideBar = new CheckBox("Bar on the left edge (compact, vertical)"), server = new CheckBox("Local server"), gate = new CheckBox("Gate"), relay = new CheckBox("Relay");
     final Label watchNote = note(), widgetNote = note(), serverNote = note(), gateNote = note(), relayNote = note();
     final GateSettingsPane gateSettings;
     final Timeline tick = new Timeline(new KeyFrame(Duration.seconds(5), e -> redraw()));
@@ -40,6 +40,7 @@ final class ServersPane extends VBox implements Page {
         grid.addRow(row++, widget, widgetNote);
         grid.addRow(row++, indent(card), new Label());
         grid.addRow(row++, indent(floating), new Label());
+        grid.addRow(row++, indent(sideBar), new Label());
         grid.addRow(row++, server, serverNote);
         grid.addRow(row++, gate, gateNote);
         grid.addRow(row, relay, relayNote);
@@ -51,6 +52,7 @@ final class ServersPane extends VBox implements Page {
         wire(widget, parts::widget);
         wire(card, on -> { if (parts.widget != null) parts.widget.taskbar(on); });
         wire(floating, on -> { if (parts.widget != null) parts.widget.floating(on); });
+        wire(sideBar, on -> { if (parts.widget != null) parts.widget.sideBar(on); });
         wire(server, parts::server);
         wire(gate, parts::gate);
         wire(relay, parts::relay);
@@ -92,11 +94,13 @@ final class ServersPane extends VBox implements Page {
             watch.setSelected(parts.watcher != null);
             watchNote.setText(parts.watcher == null ? "off: Claude Code stays where it is, nothing is read" : "mode " + parts.watcher.mode().name().toLowerCase());
             widget.setSelected(w != null);
-            widgetNote.setText(w == null ? "off" : "the taskbar card and the usage window");
+            widgetNote.setText(w == null ? "off" : "the usage window; the taskbar card is optional (Windows 10 style taskbars)");
             card.setDisable(w == null);
             card.setSelected(w != null && w.taskbarOn());
             floating.setDisable(w == null);
             floating.setSelected(w != null && w.floatingOn());
+            sideBar.setDisable(w == null);
+            sideBar.setSelected(w != null && w.sideBar());
             server.setSelected(parts.server.running());
             serverNote.setText(items.serverNote().strip());
             gate.setSelected(parts.gate.running());

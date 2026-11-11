@@ -7,7 +7,7 @@
 
     <groupId>io.github.ccsuite</groupId>
     <artifactId>ccsuite-ccacc</artifactId>
-    <version>0.1.0-beta.4</version>
+    <version>0.1.0-beta.5</version>
     <packaging>jar</packaging>
     <description>ccacc, the Claude Code accounts tool, one resident app for the Claude Code line: account watcher (cswap), usage widget and taskbar card (ccu) and the local proxy (ccls), with one tray icon and menu.</description>
 

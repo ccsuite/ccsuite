@@ -76,6 +76,10 @@ public class UsageWidget extends Application {
     private java.nio.file.Path feedSettings;
     private java.util.function.Function<AccountUsage, String> feedRefresh;
     private AccountUsage feedAll;
+    // A feed window has no taskbar setting of its own; its host says whether a taskbar card shows these pages (then the window waits to be asked for).
+    private boolean feedCard;
+    // True while the window stands where {@link WidgetPlace} put it because no place was remembered: it then follows its size (a row more, the bar moved) and stays bottom right.
+    private boolean placedByDefault;
     // Who Claude Code is logged into right now (the host's live detection); the file's claudecodeactive flag
     // is only as fresh as the last tool that wrote it, so when this is set it decides.
     private java.util.function.Supplier<String> liveActiveId;
@@ -200,7 +204,7 @@ public class UsageWidget extends Application {
 
         // Save window height when user resizes (but not on programmatic changes)
         primaryStage.heightProperty().addListener((obs, oldVal, newVal) -> {
-            if (primaryStage.isShowing() && !oldVal.equals(newVal) && !programmaticHeightChange) {
+            if (primaryStage.isShowing() && !oldVal.equals(newVal) && !programmaticHeightChange && !placedByDefault) {   // while it stands where WidgetPlace put it, only a move or resize BY THE USER (which saves by itself) makes the place remembered
                 saveWindowPosition();
             }
         });
@@ -227,7 +231,7 @@ public class UsageWidget extends Application {
 
         // Show window first (before any network calls). It is optional: with floatingWindow=false the
         // taskbar card is the display, and the tray menu still opens this window on demand.
-        if (uiSettings.floatingWindow() && !hosted) {   // a host (ccacc) shows it only when asked: its tray, its window, or the taskbar slot being absent
+        if (uiSettings.floatingWindow() && (!hosted || !cardWanted())) {   // a host (ccacc) shows it by itself unless the taskbar card is the display; then only when asked: its tray, its window, or the slot staying absent
             primaryStage.show();
         }
 
@@ -262,6 +266,9 @@ public class UsageWidget extends Application {
      * Taskbar card: extract and register the slot DLL (per user, no admin), then host the card in
      * the slot. It is fed by this widget's own refresh sweep, so nothing extra is fetched.
      */
+    /** True when the taskbar card is what shows these pages (the setting is on, on Windows); the floating window then waits to be asked for. */
+    private boolean cardWanted() { return WINDOWS && (feed ? feedCard : uiSettings.taskbar()); }
+
     private void startTaskbar() {
         if (taskbarCard != null) return;
         try {
@@ -302,6 +309,16 @@ public class UsageWidget extends Application {
         w.windowTitle = title; w.palette = palette; w.feedSettings = settingsFile; w.feedRefresh = refresh;
         return w;
     }
+
+    /** Whether the settings file asks for the taskbar card (the free accounts' card follows it, since the setting belongs to the usage widget); false off Windows or when the file cannot be read. */
+    public static boolean cardSetting() {
+        if (!WINDOWS) return false;
+        try { return new SettingsManager().load().getUiSettings().taskbar(); }
+        catch (Exception e) { return false; }
+    }
+
+    /** Call before {@link #start}: the host shows these pages in a taskbar card, so the window is not shown by itself. */
+    public UsageWidget cardInTaskbar(boolean on) { this.feedCard = on; return this; }
 
     /** The owner's pages and their ALL page (null for none): the rows are built when the set of accounts changes and updated in place otherwise. Any thread. */
     public void feed(List<AccountUsage> pages, AccountUsage all) {
@@ -471,6 +488,11 @@ public class UsageWidget extends Application {
         primaryStage.hide();
     }
 
+    /** The user hid the window: a host remembers it (the window would be shown by itself at the next start otherwise); standalone, the tray's own Show brings it back. */
+    private void hidden() {
+        if (hosted) setFloatingMode(false); else hideToTray();
+    }
+
     // ---- Hosting: a host app (the combined desktop app) starts this widget on a Stage of its own,
     // keeps the tray icon itself, and shares one usage source. Everything below runs on the FX thread.
 
@@ -552,9 +574,9 @@ public class UsageWidget extends Application {
         var refreshBtn = barButton("⟳", "#404040", 11);
         refreshBtn.setOnAction(e -> triggerFullRefresh(refreshBtn));
         var hideBtn = barButton("−", "#404040", 10);
-        hideBtn.setOnAction(e -> hideToTray());
+        hideBtn.setOnAction(e -> hidden());
         var closeBtn = barButton("×", "#ff4444", 12);
-        closeBtn.setOnAction(e -> { if (hosted) hideToTray(); else exitApp(); });   // a host owns the process: its window only hides
+        closeBtn.setOnAction(e -> { if (hosted) hidden(); else exitApp(); });   // a host owns the process: its window only hides
 
         Region bar;
         if (vertical) {
@@ -647,6 +669,7 @@ public class UsageWidget extends Application {
             programmaticHeightChange = false;
         }
         installChrome();
+        if (placedByDefault) placeByDefault(primaryStage);
     }
 
     /** Lock the (fixed) window width for the current mode — wider by the bar width in side-bar mode. */
@@ -1067,6 +1090,7 @@ public class UsageWidget extends Application {
             programmaticHeightChange = true;
             primaryStage.setHeight(newHeight);
             programmaticHeightChange = false;
+            if (placedByDefault) placeByDefault(primaryStage); else keepOnScreen(primaryStage);   // a window grown by a row never hangs below the taskbar
 
             lastAccountCount = accountUsages.size();
         }
@@ -1499,6 +1523,7 @@ public class UsageWidget extends Application {
      */
     private void setWindowPosition(Stage stage) {
         System.out.println("📍 LOADING window position from settings: " + uiSettings.lastScreenLoc());
+        if (uiSettings.lastScreenLoc() == null || uiSettings.lastScreenLoc().isEmpty()) { placeByDefault(stage); return; }
         if (uiSettings.lastScreenLoc() != null && !uiSettings.lastScreenLoc().isEmpty()) {
             try {
                 var parts = uiSettings.lastScreenLoc().split(",");
@@ -1593,6 +1618,26 @@ public class UsageWidget extends Application {
         }
     }
 
+    /** The window moved back inside the usable part of the screen it is on (see {@link WidgetPlace#fit}). */
+    private void keepOnScreen(Stage s) {
+        if (!s.isShowing()) return;
+        var b = javafx.stage.Screen.getScreensForRectangle(s.getX(), s.getY(), s.getWidth(), s.getHeight()).stream().findFirst().orElse(javafx.stage.Screen.getPrimary()).getVisualBounds();
+        var at = WidgetPlace.fit(b.getMinX(), b.getMinY(), b.getMaxX(), b.getMaxY(), s.getX(), s.getY(), s.getWidth(), s.getHeight());
+        s.setX(at[0]);
+        s.setY(at[1]);
+    }
+
+    /** Nothing remembered yet: bottom right of the usable screen (see {@link WidgetPlace}), kept there while the window changes size, until the user moves it. */
+    private void placeByDefault(Stage stage) {
+        var b = javafx.stage.Screen.getPrimary().getVisualBounds();
+        var width = sideBarMode ? WIDGET_WIDTH + LEFT_BAR_WIDTH : WIDGET_WIDTH;
+        var height = Double.isNaN(stage.getHeight()) || stage.getHeight() < currentMinHeight() ? currentMinHeight() : stage.getHeight();
+        var at = WidgetPlace.defaultAt(b.getMinX(), b.getMinY(), b.getMaxX(), b.getMaxY(), width, height, feed ? 1 : 0);
+        stage.setX(at[0]);
+        stage.setY(at[1]);
+        placedByDefault = true;
+    }
+
     /**
      * Save current window position and height to settings
      * Format: "x,y,height"
@@ -1603,6 +1648,7 @@ public class UsageWidget extends Application {
             var y = primaryStage.getY();
             var height = primaryStage.getHeight();
             var posString = String.format("%.0f,%.0f,%.0f", x, y, height);
+            placedByDefault = false;
             System.out.println("💾 SAVING window position: " + posString);
             uiSettings.lastScreenLoc(posString);
             saveSettings();

@@ -41,7 +41,7 @@ final class MainWindow {
     final Path memory;
     final Map<Tab, Page> pages = new LinkedHashMap<>();
     final Tab paidTab, freeTab, lanesTab, clientsTab, serversTab, manageTab;
-    /** Show or hide the floating usage windows, which never appear by themselves; set by the app. */
+    /** Show or hide the floating usage windows; they show by themselves unless the taskbar card is on (PRP 93); set by the app. */
     Runnable openPaidDialog = () -> {}, openFreeDialog = () -> {};
 
     MainWindow(Parts parts, WatchBridge bridge, String color, Supplier<String> statusText, FreePane free, TrayItems items) {

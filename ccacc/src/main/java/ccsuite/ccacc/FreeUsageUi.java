@@ -8,7 +8,7 @@ import javafx.stage.Stage;
 /**
  * Everything that shows the free accounts' usage outside the main window (the free usage window, the taskbar card) as one unit that exists only while at least one
  * free account is saved: with none, nothing of it is visible, and it appears by itself when the first one is added ({@link #sync}, asked every half minute on the FX
- * thread). The free usage window is the paid one ({@link UsageWidget}) fed with the free pages and painted teal; it is never shown by itself, only when asked
+ * thread). The free usage window is the paid one ({@link UsageWidget}) fed with the free pages and painted teal; it shows by itself unless the taskbar card is on (PRP 93), and opens on request otherwise
  * ({@link #toggleDialog}). There is no tray icon of its own: the one ccacc icon is enough.
  */
 final class FreeUsageUi {
@@ -25,6 +25,7 @@ final class FreeUsageUi {
 
     FreeUsageUi(FreeGauges gauges, LaneSettings limits, FreePane pane, boolean windows) {
         this.gauges = gauges; this.limits = limits; this.pane = pane; this.windows = windows;
+        this.cardWanted = () -> windows && UsageWidget.cardSetting();
     }
 
     boolean hasFree() { return !FreeGauges.free(gauges.accounts.get()).isEmpty(); }
@@ -34,31 +35,48 @@ final class FreeUsageUi {
         var has = hasFree();
         if (has && !shown) show();
         else if (!has && shown) hide();
-        else if (shown) push();
+        else if (shown) {
+            var cardOn = cardWanted.getAsBoolean();   // the card was switched on or off since the last look
+            if (cardOn && card == null) startCard();
+            else if (!cardOn && card != null) stopCard();
+            push();
+        }
     }
+
+    /** Whether the taskbar card is wanted (PRP 93: opt-in, the {@code taskbar} setting of the usage widget; only on Windows). Without it the free window is the display and shows by itself. */
+    BooleanSupplier cardWanted;
 
     void show() {
         shown = true;
-        widget = UsageWidget.feed("Free accounts", Palette.FREE, windowSettings, page -> FreePages.reread(gauges, page));
+        var cardOn = cardWanted.getAsBoolean();
+        widget = UsageWidget.feed("Free accounts", Palette.FREE, windowSettings, page -> FreePages.reread(gauges, page)).cardInTaskbar(cardOn);
         widget.start(new Stage());
         push();
-        if (windows) {
-            try {
-                card = new FreeCard(gauges, limits);
-                card.start();
-            } catch (Throwable e) {
-                card = null;
-                System.err.println("ccacc: no taskbar card for the free accounts (" + e + ")");
-            }
+        if (cardOn) startCard();
+    }
+
+    void startCard() {
+        try {
+            card = new FreeCard(gauges, limits);
+            card.start();
+        } catch (Throwable e) {
+            card = null;
+            System.err.println("ccacc: no taskbar card for the free accounts (" + e + ")");
         }
+    }
+
+    void stopCard() {
+        if (card == null) return;   // never started (the card is off): nothing was written, nothing to undo
+        card.stop();
+        card = null;
+        if (windows) ccsuite.usagetracker.taskbar.SlotLayout.freeCard(false);   // the band is one card long again the next time the taskbar loads it
     }
 
     void hide() {
         shown = false;
         if (widget != null) widget.shutdown();
-        if (card != null) card.stop();
-        if (windows) ccsuite.usagetracker.taskbar.SlotLayout.freeCard(false);   // the band is one card long again the next time the taskbar loads it
-        widget = null; card = null;
+        stopCard();
+        widget = null;
     }
 
     /** The free usage window, shown or hidden on request; does nothing while there is no free account. FX thread. */

@@ -21,7 +21,7 @@ final class TrayItems {
     Runnable openWindow = () -> {};
     /** Whether any free account is saved; the free usage window row is left out when none is. Set by the app. */
     java.util.function.BooleanSupplier hasFree = () -> true;
-    /** Shows or hides the floating usage windows (paid, free), which are never shown by themselves; set by the app. */
+    /** Shows or hides the floating usage windows (paid, free); they show by themselves unless the taskbar card is on (PRP 93); set by the app. */
     Runnable openPaidDialog = () -> {}, openFreeDialog = () -> {};
     /** Opens the lanes window; set by the app. */
     Runnable openLanes = () -> {};
