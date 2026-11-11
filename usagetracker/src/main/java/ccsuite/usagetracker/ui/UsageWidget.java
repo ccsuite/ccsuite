@@ -80,6 +80,8 @@ public class UsageWidget extends Application {
     private boolean feedCard;
     // True while the window stands where {@link WidgetPlace} put it because no place was remembered: it then follows its size (a row more, the bar moved) and stays bottom right.
     private boolean placedByDefault;
+    // True when the credentials held no paid account at start: a host does not show the empty paid window by itself then (its free window does the showing).
+    private boolean noPaidAtStart;
     // Who Claude Code is logged into right now (the host's live detection); the file's claudecodeactive flag
     // is only as fresh as the last tool that wrote it, so when this is set it decides.
     private java.util.function.Supplier<String> liveActiveId;
@@ -143,11 +145,8 @@ public class UsageWidget extends Application {
             return;
         }
 
-        // Validate credentials
-        if (credentials.getPaidUsageCredentials().isEmpty()) {
-            showError("No credentials with trackUsage=true found");
-            return;
-        }
+        // No paid account is not an error (PRP 94): a machine with only free accounts has its free window, and this one waits with a note until a paid account is added.
+        noPaidAtStart = credentials.getPaidUsageCredentials().isEmpty();
 
         // Create API client (stateless - baseUrl is per-credential)
         apiClient = new WebUsageSource();
@@ -231,7 +230,7 @@ public class UsageWidget extends Application {
 
         // Show window first (before any network calls). It is optional: with floatingWindow=false the
         // taskbar card is the display, and the tray menu still opens this window on demand.
-        if (uiSettings.floatingWindow() && (!hosted || !cardWanted())) {   // a host (ccacc) shows it by itself unless the taskbar card is the display; then only when asked: its tray, its window, or the slot staying absent
+        if (uiSettings.floatingWindow() && (!hosted || !cardWanted() && !noPaidAtStart)) {   // a host (ccacc) shows it by itself unless the taskbar card is the display; then only when asked: its tray, its window, or the slot staying absent
             primaryStage.show();
         }
 
@@ -556,9 +555,11 @@ public class UsageWidget extends Application {
     /**
      * Show loading placeholder so window is immediately visible and draggable
      */
-    private void showLoadingPlaceholder() {
+    private void showLoadingPlaceholder() { showNote("Loading..."); }
+
+    private void showNote(String text) {
         accountsContainer.getChildren().clear();
-        var loadingLabel = new Label("Loading...");
+        var loadingLabel = new Label(text);
         loadingLabel.setStyle("-fx-text-fill: " + palette.accent() + "; -fx-font-size: 9px; -fx-padding: 10;");
         accountsContainer.getChildren().add(loadingLabel);
         installChrome();
@@ -922,9 +923,13 @@ public class UsageWidget extends Application {
         reloadCredentialsBestEffort();
 
         var creds = credentials.getPaidUsageCredentialsOrdered();
-        if (creds.isEmpty()) {
-            System.err.println("❌ No credentials with trackUsage=true found");
-            Platform.runLater(() -> showError("No credentials with trackUsage=true found"));
+        if (creds.isEmpty()) {   // not an error (PRP 94): a quiet note in the window, never a dialog; the rows come by themselves when a paid account is added
+            if (!List.<String>of().equals(lastRowIds)) {
+                lastRowIds = List.of();
+                latestAccountUsages.clear();
+                pushTaskbar();
+                Platform.runLater(() -> showNote("No paid accounts. Free accounts have a window of their own."));
+            }
             return;
         }
 
@@ -1387,14 +1392,14 @@ public class UsageWidget extends Application {
         // Handle errors that occur before UI is initialized
         if (contentBox == null) {
             System.err.println("Error: " + message);
-            // Show error dialog for early initialization errors
-            Platform.runLater(() -> {
-                javafx.scene.control.Alert alert = new javafx.scene.control.Alert(javafx.scene.control.Alert.AlertType.ERROR);
+            // A host app owns the FX thread and the process: it only logs (PRP 94: a modal that went unseen, then Platform.exit(), left the thread stuck and the tray dead).
+            // Standalone, a dialog that does not block the thread tells the user why nothing appeared.
+            if (!hosted) Platform.runLater(() -> {
+                var alert = new javafx.scene.control.Alert(javafx.scene.control.Alert.AlertType.ERROR);
                 alert.setTitle("Usage Tracker Error");
                 alert.setHeaderText(null);
                 alert.setContentText(message);
-                alert.showAndWait();
-                Platform.exit();
+                alert.show();
             });
             return;
         }
