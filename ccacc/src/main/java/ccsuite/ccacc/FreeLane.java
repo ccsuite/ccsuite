@@ -277,7 +277,8 @@ final class FreeLane implements Lane {
             return null;
         }
         var last = key == null ? null : started.get(key);
-        var chars = last == null ? body.length : Math.max(0, body.length - last);   // a chat the lane holds is sent only what is new
+        var size = ImageContent.sizeOf(body);
+        var chars = last == null ? size : Math.max(0, size - last);   // a chat the lane holds is sent only what is new
         var cache = last == null ? "new" : "continued";
         var session = key == null ? "-" : key.substring(0, 8);
         var input = chats.input(key, last == null ? null : sessionAccount.get(key), session, model, cache, chars, estimator.promptPerBody(), Instant.now());
@@ -368,7 +369,7 @@ final class FreeLane implements Lane {
     void remember(byte[] body, String account) {
         var k = sessionKey(body);
         if (k == null) return;
-        started.put(k, body.length);
+        started.put(k, ImageContent.sizeOf(body));
         if (account != null) sessionAccount.put(k, account);
     }
 
@@ -393,7 +394,9 @@ final class FreeLane implements Lane {
      * A conversation this lane already carries is never refused (its chat is cached, a call sends only what is new), and a small request never is. null: send it.
      */
     String guard(byte[] body) {
-        if (body.length < settings.guardMinChars()) return null;
+        try { var problem = ImageContent.problem(JSON.readTree(body)); if (problem != null) return ImageContent.refusal(problem); } catch (Exception e) { /* not JSON: the checks below pass it on as before */ }   // PRP 96: an image the web chat cannot take, whatever the size, and for a chat the lane holds too
+        var size = ImageContent.sizeOf(body);   // the base64 of a picture is not what it costs
+        if (size < settings.guardMinChars()) return null;
         var key = sessionKey(body);
         if (key == null || started.containsKey(key)) return null;
         sync();
@@ -402,9 +405,9 @@ final class FreeLane implements Lane {
         var now = Instant.now();
         var model = modelOf(body);
         var tokens = ccsuite.webproxy.RequestTokens.ofBody(body);   // PRP 85: from the content (system, tools, messages), the one ratio only as the fallback
-        var need = estimator.predictStart(body.length, model);
+        var need = estimator.predictStart(size, model);
         var text = tokens > estimator.actualMaxInputTokens() || tokens > settings.contextLimitTokens()   // the decision is the estimated input against the safe start (PRP 84)
-                ? beyondAnyAccount(body.length, tokens, model)
+                ? beyondAnyAccount(size, tokens, model)
                 : estimator.place(ids, need, now) != null ? null : waitForRoom(tokens, need, estimator.bestRoom(ids, now), ids, now);
         if (text == null) return null;
         return JSON.createObjectNode().put("type", "error").set("error", JSON.createObjectNode().put("type", "invalid_request_error").put("message", text)).toString();

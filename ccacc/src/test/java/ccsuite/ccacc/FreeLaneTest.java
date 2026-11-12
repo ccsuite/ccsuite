@@ -147,6 +147,49 @@ class FreeLaneTest {
         assertNotNull(laneWithRoom(dir, 0.95).guard(conversation("hello", 60_000)), "5 points of room left is not enough");
     }
 
+    /** PRP 96: the request shape of a typical vision client (Messages API): a cached system block, then one user message with an image block and a text instruction. */
+    static byte[] visionRequest(boolean tool, String sourceType, String mediaType, int dataChars) throws Exception {
+        var root = FreeLane.JSON.createObjectNode().put("model", "claude-haiku-5-5").put("max_tokens", 200);
+        root.putArray("system").addObject().put("type", "text").put("text", "Judge the profile picture.").putObject("cache_control").put("type", "ephemeral");
+        var content = root.putArray("messages").addObject().put("role", "user").putArray("content");
+        var image = (tool ? content.addObject().put("type", "tool_result").put("tool_use_id", "t1").putArray("content") : content).addObject().put("type", "image");
+        var source = image.putObject("source").put("type", sourceType);
+        if (sourceType.equals("base64")) source.put("media_type", mediaType).put("data", "QUJD".repeat(dataChars / 4)); else source.put("url", "https://example.org/a.jpg");
+        if (!tool) content.addObject().put("type", "text").put("text", "Does this show the account holder?");
+        return FreeLane.JSON.writeValueAsBytes(root);
+    }
+
+    static byte[] vision() throws Exception { return visionRequest(false, "base64", "image/jpeg", 2_000); }
+
+    @Test void aBase64PictureIsCarriedAndItsBase64DoesNotInflateTheCost(@TempDir Path dir) throws Exception {
+        var l = laneWithRoom(dir, 0.9);   // 10 points of room left
+        assertNull(l.guard(vision()));
+        assertNull(l.guard(visionRequest(true, "base64", "image/png", 2_000)), "a picture inside a tool result (Claude Code reading an image file) is carried too");
+        var photo = visionRequest(false, "base64", "image/jpeg", 6_000_000);   // a 4.5 MB photo: 6 million characters of base64, about 1,500 tokens for the web
+        assertTrue(photo.length > 6_000_000);
+        assertNull(l.guard(photo), "sized by what the picture costs, not by its base64 text (which would be about 2.5 million tokens and over every limit)");
+        assertTrue(ImageContent.sizeOf(photo) < 20_000, "" + ImageContent.sizeOf(photo));
+    }
+
+    @Test void anImageTheWebChatCannotTakeIsRefusedClearlyNotAnsweredAsIfNoImageCame(@TempDir Path dir) throws Exception {
+        var l = laneWithRoom(dir, 0.0);
+        var refusal = l.guard(visionRequest(false, "url", null, 0));
+        assertNotNull(refusal, "an image the lane cannot attach must be refused, not forwarded as '[image]' for the model to answer 'no image was received'");
+        assertTrue(refusal.contains("invalid_request_error") && refusal.contains("base64 data"), refusal);
+        assertTrue(l.guard(visionRequest(false, "base64", "image/tiff", 2_000)).contains("image/tiff"));
+        assertNotNull(l.guard(visionRequest(true, "url", null, 0)), "also inside a tool result");
+        l.remember(visionRequest(false, "url", null, 0));
+        assertNotNull(l.guard(visionRequest(false, "url", null, 0)), "a conversation the lane carries is refused too when its new message holds such an image");
+    }
+
+    @Test void anImageOnlyInTheEarlierTurnsDoesNotStopTheConversation(@TempDir Path dir) throws Exception {
+        var root = FreeLane.JSON.readTree(visionRequest(false, "url", null, 0));
+        var messages = (com.fasterxml.jackson.databind.node.ArrayNode) root.path("messages");
+        messages.addObject().put("role", "assistant").put("content", "I could not see it.");
+        messages.addObject().put("role", "user").put("content", "ok, carry on without it");
+        assertNull(laneWithRoom(dir, 0.0).guard(FreeLane.JSON.writeValueAsBytes(root)), "the image was in an earlier turn: the chat goes on");
+    }
+
     @Test void aSmallRequestIsNeverRefused(@TempDir Path dir) throws Exception {
         assertNull(laneWithRoom(dir, 0.99).guard(conversation("hello", 30_000)));
     }

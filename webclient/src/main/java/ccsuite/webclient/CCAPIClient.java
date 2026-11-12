@@ -61,12 +61,44 @@ public class CCAPIClient {
     }
 
     /** The completion body. The model goes here, not into the chat: a chat created with a model is still answered by the account's default one. */
-    static java.util.Map<String, String> payload(String message, String model) {
-        var payload = new java.util.LinkedHashMap<String, String>();
+    static java.util.Map<String, Object> payload(String message, String model) {
+        return payload(message, model, List.of());
+    }
+
+    /** PRP 96: {@code files} are the uuids of images uploaded to the account with {@link #uploadImage}; the web chat shows them with the message. */
+    static java.util.Map<String, Object> payload(String message, String model, List<String> files) {
+        var payload = new java.util.LinkedHashMap<String, Object>();
         payload.put("prompt", message);
         payload.put("timezone", "UTC");
         if (model != null && !model.isBlank()) payload.put("model", model);
+        if (files != null && !files.isEmpty()) payload.put("files", files);
         return payload;
+    }
+
+    /**
+     * PRP 96: uploads an image for this account's web chat (multipart {@code POST /api/<org>/upload}, the call the web page makes when a picture is attached) and returns its
+     * {@code file_uuid}, to be sent as {@code files} with the next message. Proven on a free account (2026-11-12): the model read the picture it was attached to.
+     */
+    public String uploadImage(CCAPICredential credential, byte[] bytes, String mediaType) throws IOException {
+        var baseUrl = getBaseUrl(credential);
+        var name = "image." + (mediaType.contains("/") ? mediaType.substring(mediaType.indexOf('/') + 1).replace("jpeg", "jpg") : "png");
+        var body = new MultipartBody.Builder().setType(MultipartBody.FORM).addFormDataPart("file", name, RequestBody.create(bytes, MediaType.get(mediaType))).build();
+        var request = new Request.Builder()
+                .url(String.format("%s/api/%s/upload", baseUrl, credential.orgId()))
+                .post(body)
+                .addHeader("Cookie", "sessionKey=" + credential.key())
+                .addHeader("User-Agent", getUserAgent(credential))
+                .addHeader("Accept", "*/*")
+                .addHeader("Origin", baseUrl)
+                .addHeader("Referer", baseUrl + "/")
+                .build();
+        try (Response response = httpClient.newCall(request).execute()) {
+            var text = response.body() == null ? "" : response.body().string();
+            if (!response.isSuccessful()) throw new IOException("Failed to upload an image: HTTP " + response.code() + " - " + text);
+            var uuid = objectMapper.readTree(text).path("file_uuid").asText(null);
+            if (uuid == null || uuid.isBlank()) throw new IOException("Failed to upload an image: no file_uuid in the answer");
+            return uuid;
+        }
     }
 
     private String getUserAgent(CCAPICredential credential) {
@@ -221,12 +253,17 @@ public class CCAPIClient {
 
     /** Like {@link #sendMessage(CCAPICredential, String, String)}, answered by the given model (null = the account's default). */
     public String sendMessage(CCAPICredential credential, String conversationId, String message, String model) throws IOException {
+        return sendMessage(credential, conversationId, message, model, List.of());
+    }
+
+    /** Like the model form, with the images (uuids from {@link #uploadImage}) attached to the message. */
+    public String sendMessage(CCAPICredential credential, String conversationId, String message, String model, List<String> files) throws IOException {
         var baseUrl = getBaseUrl(credential);
         var url = String.format("%s/api/organizations/%s/chat_conversations/%s/completion",
                 baseUrl, credential.orgId(), conversationId);
 
         // Build JSON properly using Jackson (handles all escaping automatically)
-        var payload = payload(message, model);
+        var payload = payload(message, model, files);
         var json = objectMapper.writeValueAsString(payload);
 
         var requestBody = RequestBody.create(json, MediaType.get("application/json"));
@@ -275,12 +312,18 @@ public class CCAPIClient {
     /** Like the four-argument form, answered by the given model (null = the account's default model, which is what the web chat uses when no model is sent). */
     public String sendMessageStreaming(CCAPICredential credential, String conversationId,
                                       String message, String model, Consumer<String> onText) throws IOException {
+        return sendMessageStreaming(credential, conversationId, message, model, List.of(), onText);
+    }
+
+    /** Like the model form, with the images (uuids from {@link #uploadImage}) attached to the message. */
+    public String sendMessageStreaming(CCAPICredential credential, String conversationId,
+                                      String message, String model, List<String> files, Consumer<String> onText) throws IOException {
         var baseUrl = getBaseUrl(credential);
         var url = String.format("%s/api/organizations/%s/chat_conversations/%s/completion",
                 baseUrl, credential.orgId(), conversationId);
 
         // Build JSON properly using Jackson (handles all escaping automatically)
-        var payload = payload(message, model);
+        var payload = payload(message, model, files);
         var json = objectMapper.writeValueAsString(payload);
 
         var requestBody = RequestBody.create(json, MediaType.get("application/json"));
@@ -330,10 +373,17 @@ public class CCAPIClient {
      */
     public Reply sendTurnStreaming(CCAPICredential credential, String conversationId, String message, String model, String parentUuid,
                                    Consumer<String> onText) throws IOException {
+        return sendTurnStreaming(credential, conversationId, message, model, parentUuid, List.of(), onText);
+    }
+
+    /** Like the form without files, with the images (uuids from {@link #uploadImage}) attached to the message (PRP 96). */
+    public Reply sendTurnStreaming(CCAPICredential credential, String conversationId, String message, String model, String parentUuid, List<String> files,
+                                   Consumer<String> onText) throws IOException {
         var baseUrl = getBaseUrl(credential);
         var url = String.format("%s/api/organizations/%s/chat_conversations/%s/completion", baseUrl, credential.orgId(), conversationId);
         var body = objectMapper.createObjectNode().put("prompt", message).put("timezone", "UTC").put("rendering_mode", "messages");
         if (model != null && !model.isBlank()) body.put("model", model);
+        if (files != null && !files.isEmpty()) files.forEach(body.putArray("files")::add);
         if (parentUuid != null) body.put("parent_message_uuid", parentUuid);
         var request = new Request.Builder()
                 .url(url)
