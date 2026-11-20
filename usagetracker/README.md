@@ -25,6 +25,8 @@ cd ../ccsuite-base
 mvn clean install
 ```
 
+   The taskbar band (the slot DLL, its Win32 bindings and the card host) lives in the sibling module `taskbarslot` (`ccsuite-taskbarslot`); build it first, or build from the `ccsuite` root with `-am`: `mvn -pl usagetracker -am package`.
+
 2. Build the usage tracker:
 ```bash
 cd ../ccsuite-usagetracker

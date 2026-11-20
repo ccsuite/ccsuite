@@ -14,6 +14,7 @@
         <module>tokencounter</module>
         <module>webclient</module>
         <module>ping</module>
+        <module>taskbarslot</module>
         <module>usagetracker</module>
         <module>chatdownloader</module>
         <module>oauthclient</module>

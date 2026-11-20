@@ -19,6 +19,13 @@
     </properties>
 
     <dependencies>
+        <!-- The shared taskbar slot band (DLL, FFM bindings, host) -->
+        <dependency>
+            <groupId>io.github.ccsuite</groupId>
+            <artifactId>ccsuite-taskbarslot</artifactId>
+            <version>1.0</version>
+        </dependency>
+
         <!-- Base CCAPI Models -->
         <dependency>
             <groupId>io.github.ccsuite</groupId>
