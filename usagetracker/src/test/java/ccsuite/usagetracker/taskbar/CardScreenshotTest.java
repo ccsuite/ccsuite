@@ -63,6 +63,16 @@ class CardScreenshotTest {
         list.add(account("bob", false, 0, 300, 12, 140));
         list.add(account("cat", false, 63, 74, 58, 55));
         list.add(account("dan", false, 18, 205, 44, 70));
+        shoot(list, "taskbar-card.png");
+    }
+
+    @Test void anAccountWithNoFiveHourLimit() throws Exception {
+        var weekOnly = account("eve", true, 0, 0, 12, 155);
+        weekOnly.usageData().fiveHour(null);
+        shoot(new ArrayList<>(java.util.List.of(weekOnly)), "taskbar-card-no-5h.png");
+    }
+
+    static void shoot(ArrayList<AccountUsage> list, String name) throws Exception {
         var view = new CardView();
         view.glow = false;
         view.modeLabel = () -> "auto";
@@ -87,7 +97,7 @@ class CardScreenshotTest {
         var out = new BufferedImage((int) strip.getWidth(), (int) strip.getHeight(), BufferedImage.TYPE_INT_ARGB);
         var reader = strip.getPixelReader();
         for (var y = 0; y < out.getHeight(); y++) for (var x = 0; x < out.getWidth(); x++) out.setRGB(x, y, reader.getArgb(x, y));
-        var file = Path.of(System.getProperty("screenshots")).resolve("taskbar-card.png");
+        var file = Path.of(System.getProperty("screenshots")).resolve(name);
         Files.createDirectories(file.getParent());
         ImageIO.write(out, "png", file.toFile());
         System.out.println("wrote " + file);

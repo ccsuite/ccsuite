@@ -159,14 +159,19 @@ final class CardView {
         side(g, h, a);
         footer(g, h);
         var d = a.usageData();
-        if (d == null || d.fiveHour() == null) { g.setFill(GRAY); g.setFont(BOLD); g.setTextAlign(TextAlignment.CENTER); g.fillText("no data", (w + BTN) / 2, h / 2); return; }
-        var h5 = a.getFiveHourUsagePercent();
+        if (d == null || d.fiveHour() == null && d.sevenDay() == null) { g.setFill(GRAY); g.setFont(BOLD); g.setTextAlign(TextAlignment.CENTER); g.fillText("no data", (w + BTN) / 2, h / 2); return; }
         var s = d.sevenDay();
         var x0 = BTN + 3;
         var top = top(h);
         var pitch = ROW + gap(h);
-        row(g, x0, top, w, h5, use(h5), use(h5), pct(a.getUsageToTimeRatio() * 100), rate(a.getUsageToTimeRatio() * 100));
-        row(g, x0, top + pitch, w, a.getFiveHourTimeElapsedPercent(), Color.WHITE, blue(), a.getTimeUntilReset(), Color.WHITE);
+        if (d.fiveHour() == null) {   // the account has no 5-hour limit (Anthropic sends only the weekly window for some plans): say so, and still draw the week
+            row(g, x0, top, w, 0, GRAY, GRAY, "no 5h", GRAY);
+            row(g, x0, top + pitch, w, 0, GRAY, GRAY, "--", GRAY);
+        } else {
+            var h5 = a.getFiveHourUsagePercent();
+            row(g, x0, top, w, h5, use(h5), use(h5), pct(a.getUsageToTimeRatio() * 100), rate(a.getUsageToTimeRatio() * 100));
+            row(g, x0, top + pitch, w, a.getFiveHourTimeElapsedPercent(), Color.WHITE, blue(), a.getTimeUntilReset(), Color.WHITE);
+        }
         if (s == null) { row(g, x0, top + 2 * pitch, w, 0, GRAY, GRAY, "--", GRAY); row(g, x0, top + 3 * pitch, w, 0, GRAY, GRAY, "--", GRAY); return; }
         var wk = s.utilization();
         if (s.resetsAt() == null) {   // no weekly reset known (a free account): the usage, and nothing made up for the pace and the time
